@@ -1,4 +1,4 @@
-# app.py — Streamlit entry point (Phase 1)
+# app.py — Streamlit entry point (Phase 1 + 2)
 
 import streamlit as st
 from streamlit_folium import st_folium
@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 st.title("💨 DFW Real-Time Air Quality")
-st.caption("Live PM2.5 readings from PurpleAir sensors across the Dallas metro area.")
+st.caption("Live PM2.5 readings from PurpleAir sensors across the Dallas metro area. IDW-interpolated heatmap overlay.")
 
 # --- Sidebar ---
 with st.sidebar:

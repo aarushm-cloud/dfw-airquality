@@ -83,8 +83,8 @@ dfw-airquality/
 
 ## Current Status
 
-- [ ] Phase 1 — Not started
-- [ ] Phase 2 — Not started
+- [x] Phase 1 — Completed
+- [x] Phase 2 — Completed
 - [ ] Phase 3 — Not started
 - [ ] Phase 4 — Not started
 - [ ] Phase 5 — Not started
