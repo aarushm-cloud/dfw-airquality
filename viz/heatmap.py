@@ -1,4 +1,4 @@
-# viz/heatmap.py — Folium map builder (Phase 1: sensor dots, Phase 2: IDW heatmap overlay)
+# viz/heatmap.py — Folium map builder (Phase 1: sensor dots, Phase 2: IDW heatmap, Phase 3: adjusted PM2.5)
 
 import numpy as np
 import folium
@@ -114,9 +114,12 @@ def build_sensor_map(df: pd.DataFrame) -> folium.Map:
         category = classify_pm25(row["pm25"])
         color    = AQI_COLORS.get(category, "gray")
 
+        # Show both adjusted (traffic+wind) and raw sensor reading in the popup
+        raw = row.get("pm25_raw", row["pm25"])
         popup_text = (
             f"<b>{row['name']}</b><br>"
-            f"PM2.5: {row['pm25']:.1f} µg/m³<br>"
+            f"PM2.5 (adjusted): {row['pm25']:.1f} µg/m³<br>"
+            f"PM2.5 (raw): {raw:.1f} µg/m³<br>"
             f"Category: {category.replace('_', ' ').title()}"
         )
 

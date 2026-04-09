@@ -1,8 +1,11 @@
-# app.py — Streamlit entry point (Phase 1 + 2)
+# app.py — Streamlit entry point (Phase 1 + 2 + 3)
 
 import streamlit as st
 from streamlit_folium import st_folium
 from data.purpleair import fetch_sensors
+from data.weather import fetch_wind
+from data.traffic import fetch_traffic
+from engine.features import build_features
 from viz.heatmap import build_sensor_map
 
 # --- Page config ---
@@ -13,7 +16,7 @@ st.set_page_config(
 )
 
 st.title("💨 DFW Real-Time Air Quality")
-st.caption("Live PM2.5 readings from PurpleAir sensors across the Dallas metro area. IDW-interpolated heatmap overlay.")
+st.caption("PM2.5 adjusted for live traffic congestion and wind conditions.")
 
 # --- Sidebar ---
 with st.sidebar:
@@ -22,18 +25,27 @@ with st.sidebar:
         st.cache_data.clear()
     st.markdown("---")
     st.markdown(
-        "**Data source:** [PurpleAir](https://www2.purpleair.com/)  \n"
-        "PM2.5 readings are 10-minute averages.  \n"
-        "Outdoor sensors only."
+        "**Sources:** PurpleAir · TomTom · OpenWeatherMap  \n"
+        "PM2.5 is adjusted for nearby traffic and wind dispersal.  \n"
+        "Refreshes every 5 minutes."
     )
 
-# --- Fetch sensor data (cached for 5 minutes) ---
+# --- Cached data fetches (all TTL 5 minutes) ---
 @st.cache_data(ttl=300, show_spinner="Fetching sensor data...")
-def load_data():
+def load_sensors():
     return fetch_sensors()
 
+@st.cache_data(ttl=300, show_spinner="Fetching wind data...")
+def load_wind():
+    return fetch_wind()
+
+@st.cache_data(ttl=300, show_spinner="Fetching traffic data...")
+def load_traffic():
+    return fetch_traffic()
+
+# --- Fetch all three data sources ---
 try:
-    df = load_data()
+    sensor_df = load_sensors()
 except ValueError as e:
     st.error(str(e))
     st.info("Add your PurpleAir API key to the `.env` file and restart the app.")
@@ -42,16 +54,37 @@ except Exception as e:
     st.error(f"Failed to fetch sensor data: {e}")
     st.stop()
 
+try:
+    wind = load_wind()
+except Exception as e:
+    st.warning(f"Wind data unavailable — defaulting to calm conditions. ({e})")
+    wind = {"wind_speed": 0.0, "wind_deg": 0.0}
+
+try:
+    traffic_df = load_traffic()
+except Exception as e:
+    st.warning(f"Traffic data unavailable — skipping congestion adjustment. ({e})")
+    traffic_df = None
+
+# --- Fuse data sources ---
+if sensor_df.empty:
+    st.warning("No sensor data found for the Dallas bounding box. Check your API key and try again.")
+    st.stop()
+
+import pandas as pd
+df = build_features(
+    sensor_df,
+    traffic_df if traffic_df is not None else pd.DataFrame(),
+    wind,
+)
+
 # --- Stats row ---
-col1, col2, col3 = st.columns(3)
-col1.metric("Active Sensors", len(df))
-if not df.empty:
-    col2.metric("Avg PM2.5 (µg/m³)", f"{df['pm25'].mean():.1f}")
-    col3.metric("Max PM2.5 (µg/m³)", f"{df['pm25'].max():.1f}")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Active Sensors",       len(df))
+col2.metric("Avg PM2.5 (adjusted)", f"{df['pm25'].mean():.1f} µg/m³")
+col3.metric("Wind Speed",           f"{wind['wind_speed']:.1f} m/s")
+col4.metric("Wind Direction",       f"{wind['wind_deg']:.0f}°")
 
 # --- Map ---
-if df.empty:
-    st.warning("No sensor data found for the Dallas bounding box. Check your API key and try again.")
-else:
-    folium_map = build_sensor_map(df)
-    st_folium(folium_map, width="100%", height=600, returned_objects=[])
+folium_map = build_sensor_map(df)
+st_folium(folium_map, width="100%", height=600, returned_objects=[])
