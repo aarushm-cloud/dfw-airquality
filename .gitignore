@@ -7,3 +7,4 @@ __pycache__/
 .streamlit/secrets.toml
 requests_cache.sqlite
 CLAUDE.md
+project_context.txt
