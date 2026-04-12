@@ -1,8 +1,10 @@
 # app.py — Streamlit entry point (Phase 1 + 2 + 3)
 
+import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 from data.purpleair import fetch_sensors
+from data.openaq import fetch_openaq
 from data.weather import fetch_wind
 from data.traffic import fetch_traffic
 from engine.features import build_features
@@ -25,7 +27,7 @@ with st.sidebar:
         st.cache_data.clear()
     st.markdown("---")
     st.markdown(
-        "**Sources:** PurpleAir · TomTom · OpenWeatherMap  \n"
+        "**Sources:** PurpleAir · OpenAQ · TomTom · OpenWeatherMap  \n"
         "PM2.5 is adjusted for nearby traffic and wind dispersal.  \n"
         "Refreshes every 5 minutes."
     )
@@ -35,6 +37,10 @@ with st.sidebar:
 def load_sensors():
     return fetch_sensors()
 
+@st.cache_data(ttl=300, show_spinner="Fetching OpenAQ data...")
+def load_openaq():
+    return fetch_openaq()
+
 @st.cache_data(ttl=300, show_spinner="Fetching wind data...")
 def load_wind():
     return fetch_wind()
@@ -43,16 +49,20 @@ def load_wind():
 def load_traffic():
     return fetch_traffic()
 
-# --- Fetch all three data sources ---
+# --- Fetch all data sources ---
 try:
-    sensor_df = load_sensors()
+    purpleair_df = load_sensors()
 except ValueError as e:
     st.error(str(e))
     st.info("Add your PurpleAir API key to the `.env` file and restart the app.")
     st.stop()
 except Exception as e:
-    st.error(f"Failed to fetch sensor data: {e}")
+    st.error(f"Failed to fetch PurpleAir data: {e}")
     st.stop()
+
+openaq_df = load_openaq()  # returns empty DataFrame on failure — non-fatal
+
+sensor_df = pd.concat([purpleair_df, openaq_df], ignore_index=True)
 
 try:
     wind = load_wind()
@@ -71,7 +81,6 @@ if sensor_df.empty:
     st.warning("No sensor data found for the Dallas bounding box. Check your API key and try again.")
     st.stop()
 
-import pandas as pd
 df = build_features(
     sensor_df,
     traffic_df if traffic_df is not None else pd.DataFrame(),

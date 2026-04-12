@@ -3,9 +3,19 @@
 import numpy as np
 import folium
 import pandas as pd
+import pgeocode
+from scipy.spatial import cKDTree
 from config import MAP_CENTER, MAP_ZOOM, AQI_COLORS
 from data.purpleair import classify_pm25
 from engine.interpolation import run_idw
+
+# Build a KD-tree over all US zipcodes once at import time so reverse-lookup is fast
+_nomi     = pgeocode.Nominatim("us")
+_zip_df   = _nomi._data[["postal_code", "latitude", "longitude"]].dropna()
+_zip_tree = cKDTree(_zip_df[["latitude", "longitude"]].values)
+
+# Cache keyed by rounded (lat, lon) so repeated rerenders skip the lookup
+_zip_cache: dict = {}
 
 
 # PM2.5 color scale: green → yellow → orange → red → purple → dark red
@@ -51,6 +61,15 @@ def _pm25_to_hex(pm25: float) -> str:
     return PM25_COLORSCALE[-1][1]  # fallback: hazardous color
 
 
+def _get_zipcode(lat: float, lon: float) -> str:
+    """Return the nearest zipcode for a lat/lon via KD-tree lookup, cached by position."""
+    key = (round(lat, 3), round(lon, 3))
+    if key not in _zip_cache:
+        _, idx = _zip_tree.query([lat, lon])
+        _zip_cache[key] = _zip_df.iloc[idx]["postal_code"]
+    return _zip_cache[key]
+
+
 def _add_idw_overlay(m: folium.Map, df: pd.DataFrame) -> None:
     """
     Run IDW interpolation on the sensor data and draw each grid cell
@@ -76,6 +95,14 @@ def _add_idw_overlay(m: folium.Map, df: pd.DataFrame) -> None:
             lat      = lats[i, j]
             lon      = lons[i, j]
 
+            category = classify_pm25(pm25_val)
+            zipcode  = _get_zipcode(lat, lon)
+            popup_text = (
+                f"<b>ZIP {zipcode}</b><br>"
+                f"PM2.5: {pm25_val:.1f} µg/m³<br>"
+                f"Category: {category.replace('_', ' ').title()}"
+            )
+
             folium.Rectangle(
                 bounds=[
                     [lat - cell_lat, lon - cell_lon],  # south-west corner
@@ -85,6 +112,7 @@ def _add_idw_overlay(m: folium.Map, df: pd.DataFrame) -> None:
                 fill=True,
                 fill_color=color,
                 fill_opacity=0.35,  # semi-transparent so basemap shows through
+                popup=folium.Popup(popup_text, max_width=180),
                 tooltip=f"{pm25_val:.1f} µg/m³",
             ).add_to(heatmap_group)
 
@@ -116,11 +144,20 @@ def build_sensor_map(df: pd.DataFrame) -> folium.Map:
 
         # Show both adjusted (traffic+wind) and raw sensor reading in the popup
         raw = row.get("pm25_raw", row["pm25"])
+
+        if raw == 0.0:
+            zero_note = "<br><i style='color:#888;font-size:11px;'>⚠ Sensor reported 0 — may be offline or malfunctioning.</i>"
+        elif row["pm25"] == 0.0:
+            zero_note = "<br><i style='color:#888;font-size:11px;'>⚠ Reading zeroed out after wind/traffic adjustment.</i>"
+        else:
+            zero_note = ""
+
         popup_text = (
             f"<b>{row['name']}</b><br>"
             f"PM2.5 (adjusted): {row['pm25']:.1f} µg/m³<br>"
             f"PM2.5 (raw): {raw:.1f} µg/m³<br>"
             f"Category: {category.replace('_', ' ').title()}"
+            f"{zero_note}"
         )
 
         folium.CircleMarker(

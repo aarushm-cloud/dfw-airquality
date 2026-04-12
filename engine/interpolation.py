@@ -23,9 +23,9 @@ def run_idw(
     lon_grid = np.linspace(BBOX["west"],  BBOX["east"],  grid_resolution)
     lons_2d, lats_2d = np.meshgrid(lon_grid, lat_grid)
 
-    sensor_lats = df["lat"].values
-    sensor_lons = df["lon"].values
-    sensor_pm25 = df["pm25"].values
+    sensor_lats = df["lat"].values.astype(np.float64)
+    sensor_lons = df["lon"].values.astype(np.float64)
+    sensor_pm25 = df["pm25"].values.astype(np.float64)
 
     # Reshape for numpy broadcasting: grid points (res, res, 1) vs sensors (1, 1, n)
     # This lets us compute all distances at once without a Python loop

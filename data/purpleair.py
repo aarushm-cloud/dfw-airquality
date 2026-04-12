@@ -66,7 +66,7 @@ def fetch_sensors() -> pd.DataFrame:
 
     if not rows:
         # Return an empty DataFrame with the right columns
-        return pd.DataFrame(columns=["sensor_id", "name", "lat", "lon", "pm25"])
+        return pd.DataFrame(columns=["sensor_id", "name", "lat", "lon", "pm25", "source"])
 
     df = pd.DataFrame(rows, columns=field_names)
 
@@ -78,11 +78,13 @@ def fetch_sensors() -> pd.DataFrame:
         "pm2.5_10minute":   "pm25",
     })
 
-    # Drop rows where PM2.5 reading is missing
+    # Drop rows where PM2.5 reading is missing or zero (offline/malfunctioning sensors)
     df = df.dropna(subset=["pm25"])
+    df = df[df["pm25"] >= 0]
 
-    # Keep only the columns we need
+    # Keep only the columns we need and tag the source
     df = df[["sensor_id", "name", "lat", "lon", "pm25"]].copy()
+    df["source"] = "purpleair"
 
     return df
 

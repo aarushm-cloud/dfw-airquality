@@ -1,4 +1,7 @@
 # config.py — Project-wide constants
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 # Dallas metro bounding box
 BBOX = {
@@ -37,3 +40,5 @@ AQI_COLORS = {
 
 # PurpleAir API base URL
 PURPLEAIR_BASE_URL = "https://api.purpleair.com/v1"
+
+OPENAQ_API_KEY = os.getenv("OPENAQ_API_KEY")
