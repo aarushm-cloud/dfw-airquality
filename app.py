@@ -7,6 +7,7 @@ from data.purpleair import fetch_sensors
 from data.openaq import fetch_openaq
 from data.weather import fetch_wind
 from data.traffic import fetch_traffic
+from data.history import save_snapshot, get_history_stats
 from engine.features import build_features
 from viz.heatmap import build_sensor_map
 
@@ -31,6 +32,20 @@ with st.sidebar:
         "PM2.5 is adjusted for nearby traffic and wind dispersal.  \n"
         "Refreshes every 5 minutes."
     )
+
+    st.markdown("---")
+    st.markdown("**ML Training Data**")
+    stats = get_history_stats()
+    if stats["total_records"] == 0:
+        st.caption("No snapshots collected yet.")
+    else:
+        st.caption(f"Records: {stats['total_records']:,}")
+        st.caption(f"Sensors: {stats['unique_sensors']}")
+        st.caption(f"Hours: {stats['hours_covered']}")
+        earliest, latest = stats["date_range"]
+        if earliest:
+            st.caption(f"From: {earliest[:16]}")
+            st.caption(f"To:   {latest[:16]}")
 
 # --- Cached data fetches (all TTL 5 minutes) ---
 @st.cache_data(ttl=300, show_spinner="Fetching sensor data...")
@@ -86,6 +101,12 @@ df = build_features(
     traffic_df if traffic_df is not None else pd.DataFrame(),
     wind,
 )
+
+# --- Persist snapshot for ML training ---
+try:
+    save_snapshot(df, traffic_df if traffic_df is not None else pd.DataFrame(), wind)
+except Exception as e:
+    st.warning(f"Could not save training snapshot: {e}")
 
 # --- Stats row ---
 col1, col2, col3, col4 = st.columns(4)
