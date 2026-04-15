@@ -9,6 +9,7 @@ from data.weather import fetch_wind
 from data.traffic import fetch_traffic
 from data.history import save_snapshot, get_history_stats
 from engine.features import build_features
+from engine.interpolation import run_idw, adjust_grid
 from viz.heatmap import build_sensor_map
 
 # --- Page config ---
@@ -111,10 +112,23 @@ except Exception as e:
 # --- Stats row ---
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Active Sensors",       len(df))
-col2.metric("Avg PM2.5 (adjusted)", f"{df['pm25'].mean():.1f} µg/m³")
+col2.metric("Avg PM2.5 (sensors)",  f"{df['pm25'].mean():.1f} µg/m³")
 col3.metric("Wind Speed",           f"{wind['wind_speed']:.1f} m/s")
 col4.metric("Wind Direction",       f"{wind['wind_deg']:.0f}°")
 
-# --- Map ---
-folium_map = build_sensor_map(df)
+# --- Build map ---
+# Step 1: IDW on raw sensor pm25 → base grid
+lats_2d, lons_2d, grid = run_idw(df, grid_resolution=60)
+
+# Step 2: Apply traffic and wind adjustments to grid cells post-IDW.
+# Sensor readings already reflect real-world traffic/wind; adjustments only
+# apply to interpolated cells between sensors where IDW has no road/wind context.
+grid = adjust_grid(
+    grid, lats_2d, lons_2d,
+    traffic_df if traffic_df is not None else pd.DataFrame(),
+    wind,
+)
+
+# Step 3: Render heatmap with the adjusted grid
+folium_map = build_sensor_map(df, lats_2d, lons_2d, grid)
 st_folium(folium_map, width="100%", height=600, returned_objects=[])

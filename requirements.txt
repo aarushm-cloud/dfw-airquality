@@ -10,4 +10,5 @@ shapely>=2.0.0
 scikit-learn>=1.4.0
 apscheduler>=3.10.0
 pgeocode>=0.4.0
+uszipcode==0.2.6
 scipy>=1.11.0

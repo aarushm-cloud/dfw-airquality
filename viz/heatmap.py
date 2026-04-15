@@ -1,18 +1,41 @@
 # viz/heatmap.py — Folium map builder (Phase 1: sensor dots, Phase 2: IDW heatmap, Phase 3: adjusted PM2.5)
 
+from functools import lru_cache
+
 import numpy as np
 import folium
 import pandas as pd
 import pgeocode
+from uszipcode import SearchEngine
 from config import MAP_CENTER, MAP_ZOOM, AQI_COLORS
 from data.purpleair import classify_pm25
-from engine.interpolation import run_idw
 
 # pgeocode Nominatim instance for forward zip-code lookup (zip → lat/lon).
 # Used by zip_to_coords() for any future sidebar search feature.
-# Note: pgeocode has no public reverse-geocode (lat/lon → zip) API, so zip
-# codes are no longer shown in heatmap cell popups.
 _nomi = pgeocode.Nominatim("us")
+
+# uszipcode search engine — loads a local SQLite DB of US zip codes.
+# simple_zipcode=True uses the lightweight "simple" DB (9 MB, faster).
+_search = SearchEngine(simple_zipcode=True)
+
+
+@lru_cache(maxsize=2048)
+def _coords_to_zip(lat: float, lon: float) -> str | None:
+    """
+    Reverse-geocode a lat/lon to the nearest US zip code using uszipcode.
+    Coordinates are rounded to 2 decimal places before lookup (≈1.1 km
+    precision), which is well within zip code resolution and improves the
+    cache hit rate significantly across the 60×60 grid.
+
+    Returns the zip code string (e.g. "75201") or None if no result within
+    a 5-mile radius.
+    """
+    lat_r = round(lat, 2)
+    lon_r = round(lon, 2)
+    result = _search.by_coordinates(lat_r, lon_r, radius=5, returns=1)
+    if result:
+        return result[0].zipcode
+    return None
 
 
 # PM2.5 color scale: green → yellow → orange → red → purple → dark red
@@ -72,15 +95,19 @@ def zip_to_coords(zip_code: str) -> tuple[float, float] | None:
     return (result.latitude, result.longitude)
 
 
-def _add_idw_overlay(m: folium.Map, df: pd.DataFrame) -> None:
+def _add_idw_overlay(
+    m: folium.Map,
+    lats: np.ndarray,
+    lons: np.ndarray,
+    values: np.ndarray,
+) -> None:
     """
-    Run IDW interpolation on the sensor data and draw each grid cell
-    as a colored rectangle on the map.
+    Draw each cell of a pre-computed PM2.5 grid as a coloured rectangle on the map.
+    The caller is responsible for running IDW and apply_grid before calling this.
 
-    We use RectangleMarkers rather than a raster image so this works
+    We use Rectangle markers rather than a raster image so this works
     in any browser without extra plugins.
     """
-    lats, lons, values = run_idw(df, grid_resolution=60)
 
     # Cell half-width in degrees (how big each rectangle is)
     cell_lat = (lats[1, 0] - lats[0, 0]) / 2
@@ -98,8 +125,10 @@ def _add_idw_overlay(m: folium.Map, df: pd.DataFrame) -> None:
             lon      = lons[i, j]
 
             category = classify_pm25(pm25_val)
+            zip_code = _coords_to_zip(lat, lon)
+            location_label = f"Zip: {zip_code}" if zip_code else f"{lat:.3f}, {lon:.3f}"
             popup_text = (
-                f"<b>{lat:.3f}, {lon:.3f}</b><br>"
+                f"<b>{location_label}</b><br>"
                 f"PM2.5: {pm25_val:.1f} µg/m³<br>"
                 f"Category: {category.replace('_', ' ').title()}"
             )
@@ -120,12 +149,20 @@ def _add_idw_overlay(m: folium.Map, df: pd.DataFrame) -> None:
     heatmap_group.add_to(m)
 
 
-def build_sensor_map(df: pd.DataFrame) -> folium.Map:
+def build_sensor_map(
+    df: pd.DataFrame,
+    lats: np.ndarray,
+    lons: np.ndarray,
+    grid_values: np.ndarray,
+) -> folium.Map:
     """
     Build a Folium map with:
-      - IDW heatmap overlay (Phase 2)
+      - IDW heatmap overlay (Phase 2), using the pre-computed adjusted grid
       - Colored circle marker for each sensor (Phase 1)
       - AQI legend
+
+    The caller (app.py) is responsible for running run_idw() and adjust_grid()
+    before calling this function and passing in the resulting arrays.
     """
     m = folium.Map(
         location=MAP_CENTER,
@@ -134,7 +171,7 @@ def build_sensor_map(df: pd.DataFrame) -> folium.Map:
     )
 
     # --- Phase 2: heatmap overlay (drawn first so dots render on top) ---
-    _add_idw_overlay(m, df)
+    _add_idw_overlay(m, lats, lons, grid_values)
 
     # --- Phase 1: sensor dot markers ---
     sensor_group = folium.FeatureGroup(name="Sensor Readings", show=True)
@@ -146,17 +183,14 @@ def build_sensor_map(df: pd.DataFrame) -> folium.Map:
         # Show both adjusted (traffic+wind) and raw sensor reading in the popup
         raw = row.get("pm25_raw", row["pm25"])
 
-        if raw == 0.0:
+        if row["pm25"] == 0.0:
             zero_note = "<br><i style='color:#888;font-size:11px;'>⚠ Sensor reported 0 — may be offline or malfunctioning.</i>"
-        elif row["pm25"] == 0.0:
-            zero_note = "<br><i style='color:#888;font-size:11px;'>⚠ Reading zeroed out after wind/traffic adjustment.</i>"
         else:
             zero_note = ""
 
         popup_text = (
             f"<b>{row['name']}</b><br>"
-            f"PM2.5 (adjusted): {row['pm25']:.1f} µg/m³<br>"
-            f"PM2.5 (raw): {raw:.1f} µg/m³<br>"
+            f"PM2.5: {row['pm25']:.1f} µg/m³<br>"
             f"Category: {category.replace('_', ' ').title()}"
             f"{zero_note}"
         )

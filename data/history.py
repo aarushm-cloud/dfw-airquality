@@ -9,10 +9,7 @@ import fcntl
 import logging
 from datetime import datetime, timezone
 
-import numpy as np
 import pandas as pd
-
-from config import LON_CORRECTION  # cos(32.78°) — corrects lon degree distortion
 
 logger = logging.getLogger(__name__)
 
@@ -24,31 +21,20 @@ COLUMNS = [
     "sensor_id",
     "lat",
     "lon",
-    "pm25",
-    "pm25_raw",
+    "pm25",             # raw sensor reading (unmodified — sensors already see real-world effects)
+    "pm25_raw",         # same as pm25; kept for schema compatibility
     "source",
     "wind_speed",
     "wind_deg",
-    "nearest_congestion",
-    "distance_to_road_m",   # meters to nearest traffic sample point (Phase 4 feature)
+    "nearest_congestion",     # raw congestion score (0–1) of nearest traffic point
+    "distance_to_road_m",     # metres to nearest traffic sample point
+    "traffic_factor",         # exponential congestion factor before TRAFFIC_WEIGHT scaling
+    "wind_term",              # signed wind adjustment (µg/m³) for this sensor location
+    "direction_factor",       # cosine wind direction alignment (-1 transport … +1 dispersal)
+    "dispersal",              # wind speed dispersal strength (0–1)
     "hour_of_day",
     "day_of_week",
 ]
-
-
-def _nearest_traffic_stats(sensor_lat: float, sensor_lon: float, traffic_df: pd.DataFrame) -> tuple[float, float]:
-    """
-    Return (congestion, distance_m) for the closest traffic point to a sensor.
-    Distance uses the cosine-corrected degree metric then converts to meters
-    (1° ≈ 111,000 m), matching the calculation in engine/features.py.
-    """
-    dlat = (traffic_df["lat"] - sensor_lat).values
-    dlon = (traffic_df["lon"] - sensor_lon).values * LON_CORRECTION
-    dists_deg = np.sqrt(dlat ** 2 + dlon ** 2)
-    idx = dists_deg.argmin()
-    congestion   = float(traffic_df.iloc[idx]["congestion"])
-    distance_m   = float(dists_deg[idx] * 111_000)
-    return congestion, distance_m
 
 
 def save_snapshot(
@@ -60,46 +46,49 @@ def save_snapshot(
     """
     Append one training record per sensor to data/history.csv.
 
+    sensor_df is the output of build_features(): pm25 is the RAW sensor reading
+    and the feature columns (traffic_factor, wind_term, direction_factor, etc.)
+    are already computed and stored as separate columns. We read them directly
+    from the row rather than recomputing them here.
+
     Args:
-        sensor_df:  DataFrame after build_features() — pm25 is adjusted,
-                    pm25_raw (if present) is the original reading.
-        traffic_df: DataFrame with [lat, lon, congestion].
+        sensor_df:  DataFrame from build_features() with pm25 (raw) and feature columns.
+        traffic_df: DataFrame with [lat, lon, congestion] (kept for signature compat).
         wind:       Dict with wind_speed and wind_deg.
         timestamp:  Snapshot time (UTC). Defaults to datetime.utcnow().
     """
     if timestamp is None:
         timestamp = datetime.now(timezone.utc)
 
-    ts_str       = timestamp.isoformat()
-    hour_of_day  = timestamp.hour
-    day_of_week  = timestamp.weekday()
-    wind_speed   = float(wind.get("wind_speed") or 0.0)
+    ts_str      = timestamp.isoformat()
+    hour_of_day = timestamp.hour
+    day_of_week = timestamp.weekday()
+    wind_speed  = float(wind.get("wind_speed") or 0.0)
     # Store NaN when wind_deg is missing rather than coercing to 0.0 (due North),
     # which would be a misleading value in the training dataset.
     raw_deg  = wind.get("wind_deg")
     wind_deg = float(raw_deg) if raw_deg is not None else float("nan")
-    no_traffic   = traffic_df is None or traffic_df.empty
 
     records = []
     for _, row in sensor_df.iterrows():
-        if no_traffic:
-            congestion   = 0.0
-            distance_m   = float("nan")  # no traffic data → unknown road distance
-        else:
-            congestion, distance_m = _nearest_traffic_stats(row["lat"], row["lon"], traffic_df)
-
         records.append({
             "timestamp":          ts_str,
             "sensor_id":          row["sensor_id"],
             "lat":                row["lat"],
             "lon":                row["lon"],
+            # pm25 is the raw sensor reading — build_features no longer modifies it.
             "pm25":               row["pm25"],
             "pm25_raw":           row.get("pm25_raw", row["pm25"]),
             "source":             row.get("source", "unknown"),
             "wind_speed":         wind_speed,
             "wind_deg":           wind_deg,
-            "nearest_congestion": congestion,
-            "distance_to_road_m": distance_m,
+            # Feature columns computed by build_features() — read directly from row.
+            "nearest_congestion": row.get("nearest_congestion", float("nan")),
+            "distance_to_road_m": row.get("distance_to_road_m", float("nan")),
+            "traffic_factor":     row.get("traffic_factor", float("nan")),
+            "wind_term":          row.get("wind_term", float("nan")),
+            "direction_factor":   row.get("direction_factor", float("nan")),
+            "dispersal":          row.get("dispersal", float("nan")),
             "hour_of_day":        hour_of_day,
             "day_of_week":        day_of_week,
         })
