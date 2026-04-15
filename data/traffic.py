@@ -5,11 +5,14 @@
 # near each point. We convert that to a 0–1 congestion score.
 
 import os
+import logging
 import requests
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
 from config import BBOX
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -45,6 +48,7 @@ def fetch_traffic() -> pd.DataFrame:
     lons = np.linspace(BBOX["west"],  BBOX["east"],  SAMPLE_GRID)
 
     records = []
+    error_count = 0
 
     for lat in lats:
         for lon in lons:
@@ -69,8 +73,19 @@ def fetch_traffic() -> pd.DataFrame:
                     "congestion": _congestion_score(current, free_flow),
                 })
 
-            except Exception:
-                # Skip points where TomTom finds no road nearby
+            except Exception as e:
+                # Log and skip — one missing road segment shouldn't crash the whole fetch.
+                # Auth failures (401), rate limits (429), and network errors all surface here.
+                error_count += 1
+                logger.warning("TomTom request failed for point (%.4f, %.4f): %s", lat, lon, e)
                 continue
 
-    return pd.DataFrame(records)
+    result = pd.DataFrame(records)
+
+    if result.empty and error_count > 0:
+        logger.warning(
+            "No traffic data retrieved — check API key and network (%d errors logged).",
+            error_count,
+        )
+
+    return result

@@ -4,18 +4,15 @@ import numpy as np
 import folium
 import pandas as pd
 import pgeocode
-from scipy.spatial import cKDTree
 from config import MAP_CENTER, MAP_ZOOM, AQI_COLORS
 from data.purpleair import classify_pm25
 from engine.interpolation import run_idw
 
-# Build a KD-tree over all US zipcodes once at import time so reverse-lookup is fast
-_nomi     = pgeocode.Nominatim("us")
-_zip_df   = _nomi._data[["postal_code", "latitude", "longitude"]].dropna()
-_zip_tree = cKDTree(_zip_df[["latitude", "longitude"]].values)
-
-# Cache keyed by rounded (lat, lon) so repeated rerenders skip the lookup
-_zip_cache: dict = {}
+# pgeocode Nominatim instance for forward zip-code lookup (zip → lat/lon).
+# Used by zip_to_coords() for any future sidebar search feature.
+# Note: pgeocode has no public reverse-geocode (lat/lon → zip) API, so zip
+# codes are no longer shown in heatmap cell popups.
+_nomi = pgeocode.Nominatim("us")
 
 
 # PM2.5 color scale: green → yellow → orange → red → purple → dark red
@@ -61,13 +58,18 @@ def _pm25_to_hex(pm25: float) -> str:
     return PM25_COLORSCALE[-1][1]  # fallback: hazardous color
 
 
-def _get_zipcode(lat: float, lon: float) -> str:
-    """Return the nearest zipcode for a lat/lon via KD-tree lookup, cached by position."""
-    key = (round(lat, 3), round(lon, 3))
-    if key not in _zip_cache:
-        _, idx = _zip_tree.query([lat, lon])
-        _zip_cache[key] = _zip_df.iloc[idx]["postal_code"]
-    return _zip_cache[key]
+def zip_to_coords(zip_code: str) -> tuple[float, float] | None:
+    """
+    Forward-geocode a US zip code to (latitude, longitude) using pgeocode's
+    public query_postal_code() method.
+
+    Returns (lat, lon) on success, or None if the zip is not found.
+    Intended for any future "search by zip code" sidebar feature.
+    """
+    result = _nomi.query_postal_code(zip_code)
+    if pd.isna(result.latitude):
+        return None
+    return (result.latitude, result.longitude)
 
 
 def _add_idw_overlay(m: folium.Map, df: pd.DataFrame) -> None:
@@ -96,9 +98,8 @@ def _add_idw_overlay(m: folium.Map, df: pd.DataFrame) -> None:
             lon      = lons[i, j]
 
             category = classify_pm25(pm25_val)
-            zipcode  = _get_zipcode(lat, lon)
             popup_text = (
-                f"<b>ZIP {zipcode}</b><br>"
+                f"<b>{lat:.3f}, {lon:.3f}</b><br>"
                 f"PM2.5: {pm25_val:.1f} µg/m³<br>"
                 f"Category: {category.replace('_', ' ').title()}"
             )

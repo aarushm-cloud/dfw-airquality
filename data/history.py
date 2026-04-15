@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
+from config import LON_CORRECTION  # cos(32.78°) — corrects lon degree distortion
+
 logger = logging.getLogger(__name__)
 
 # CSV lives next to this file in the data/ directory
@@ -28,18 +30,25 @@ COLUMNS = [
     "wind_speed",
     "wind_deg",
     "nearest_congestion",
+    "distance_to_road_m",   # meters to nearest traffic sample point (Phase 4 feature)
     "hour_of_day",
     "day_of_week",
 ]
 
 
-def _nearest_congestion(sensor_lat: float, sensor_lon: float, traffic_df: pd.DataFrame) -> float:
-    """Return the congestion score of the closest traffic point to a sensor."""
-    dists = np.sqrt(
-        (traffic_df["lat"] - sensor_lat) ** 2 +
-        (traffic_df["lon"] - sensor_lon) ** 2
-    )
-    return float(traffic_df.loc[dists.idxmin(), "congestion"])
+def _nearest_traffic_stats(sensor_lat: float, sensor_lon: float, traffic_df: pd.DataFrame) -> tuple[float, float]:
+    """
+    Return (congestion, distance_m) for the closest traffic point to a sensor.
+    Distance uses the cosine-corrected degree metric then converts to meters
+    (1° ≈ 111,000 m), matching the calculation in engine/features.py.
+    """
+    dlat = (traffic_df["lat"] - sensor_lat).values
+    dlon = (traffic_df["lon"] - sensor_lon).values * LON_CORRECTION
+    dists_deg = np.sqrt(dlat ** 2 + dlon ** 2)
+    idx = dists_deg.argmin()
+    congestion   = float(traffic_df.iloc[idx]["congestion"])
+    distance_m   = float(dists_deg[idx] * 111_000)
+    return congestion, distance_m
 
 
 def save_snapshot(
@@ -65,15 +74,19 @@ def save_snapshot(
     hour_of_day  = timestamp.hour
     day_of_week  = timestamp.weekday()
     wind_speed   = float(wind.get("wind_speed") or 0.0)
-    wind_deg     = float(wind.get("wind_deg") or 0.0)
+    # Store NaN when wind_deg is missing rather than coercing to 0.0 (due North),
+    # which would be a misleading value in the training dataset.
+    raw_deg  = wind.get("wind_deg")
+    wind_deg = float(raw_deg) if raw_deg is not None else float("nan")
     no_traffic   = traffic_df is None or traffic_df.empty
 
     records = []
     for _, row in sensor_df.iterrows():
-        congestion = (
-            0.0 if no_traffic
-            else _nearest_congestion(row["lat"], row["lon"], traffic_df)
-        )
+        if no_traffic:
+            congestion   = 0.0
+            distance_m   = float("nan")  # no traffic data → unknown road distance
+        else:
+            congestion, distance_m = _nearest_traffic_stats(row["lat"], row["lon"], traffic_df)
 
         records.append({
             "timestamp":          ts_str,
@@ -86,6 +99,7 @@ def save_snapshot(
             "wind_speed":         wind_speed,
             "wind_deg":           wind_deg,
             "nearest_congestion": congestion,
+            "distance_to_road_m": distance_m,
             "hour_of_day":        hour_of_day,
             "day_of_week":        day_of_week,
         })
@@ -112,7 +126,9 @@ def load_history() -> pd.DataFrame:
     if not os.path.isfile(HISTORY_PATH):
         return pd.DataFrame(columns=COLUMNS)
 
-    df = pd.read_csv(HISTORY_PATH, parse_dates=["timestamp"])
+    # on_bad_lines='skip' prevents a crash if the file has rows from an older
+    # schema version with a different column count (e.g. after adding a new column).
+    df = pd.read_csv(HISTORY_PATH, parse_dates=["timestamp"], on_bad_lines="skip")
     return df
 
 

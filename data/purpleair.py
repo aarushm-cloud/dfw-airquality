@@ -78,7 +78,9 @@ def fetch_sensors() -> pd.DataFrame:
         "pm2.5_10minute":   "pm25",
     })
 
-    # Drop rows where PM2.5 reading is missing or zero (offline/malfunctioning sensors)
+    # Drop rows where PM2.5 reading is missing or negative.
+    # Zero is a valid reading (very clean air). PurpleAir returns null for offline sensors,
+    # not zero — so null is what we drop here. Negative values indicate sensor malfunction.
     df = df.dropna(subset=["pm25"])
     df = df[df["pm25"] >= 0]
 

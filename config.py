@@ -1,7 +1,15 @@
 # config.py — Project-wide constants
 import os
+from math import cos, radians
 from dotenv import load_dotenv
 load_dotenv()
+
+# --- Geospatial correction ---
+# Dallas sits at ~32.78° N. Raw degree differences overstate east-west distances
+# by ~1/cos(lat). Multiply all longitude deltas by LON_CORRECTION before squaring
+# to get an approximately isotropic distance metric without full Haversine.
+LAT_CENTER     = 32.78
+LON_CORRECTION = cos(radians(LAT_CENTER))  # ≈ 0.840
 
 # Dallas metro bounding box
 BBOX = {
@@ -42,3 +50,21 @@ AQI_COLORS = {
 PURPLEAIR_BASE_URL = "https://api.purpleair.com/v1"
 
 OPENAQ_API_KEY = os.getenv("OPENAQ_API_KEY")
+
+# --- IDW interpolation ---
+# Power controls how steeply sensor influence drops with distance.
+# 3 (vs the old 2) gives a steeper falloff so nearby sensors dominate more.
+IDW_POWER = 3
+
+# Maximum radius (degrees) within which a sensor influences a grid cell.
+# ~0.15° ≈ 15–17 km at Dallas latitude. Sensors beyond this get zero weight.
+IDW_SEARCH_RADIUS_DEG = 0.15
+
+# --- Traffic feature ---
+# Real-world near-road PM2.5 enhancement is typically 5–10 µg/m³ even at
+# the busiest highways. 20 was too aggressive and created artificial hotspots.
+TRAFFIC_WEIGHT = 8.0
+
+# Distance (meters) at which the traffic adjustment fades to zero.
+# At 0 m: full effect. At 250 m: half effect. At 500 m+: zero effect.
+TRAFFIC_DECAY_RADIUS_M = 500
