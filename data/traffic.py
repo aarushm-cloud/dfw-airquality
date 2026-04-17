@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-TOMTOM_FLOW_URL = "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json"
+TOMTOM_FLOW_URL = "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/18/json"
 
 # How many sample points along each axis — 8x8 = 64 API calls per refresh.
 # Stays well within the 2,500/day free tier limit.
@@ -77,7 +77,7 @@ def fetch_traffic() -> pd.DataFrame:
                 # Log and skip — one missing road segment shouldn't crash the whole fetch.
                 # Auth failures (401), rate limits (429), and network errors all surface here.
                 error_count += 1
-                logger.warning("TomTom request failed for point (%.4f, %.4f): %s", lat, lon, e)
+                logger.debug("TomTom request failed for point (%.4f, %.4f): %s", lat, lon, e)
                 continue
 
     result = pd.DataFrame(records)

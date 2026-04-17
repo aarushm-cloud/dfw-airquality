@@ -144,34 +144,68 @@ def adjust_grid(
     dlon = (cell_lons[:, np.newaxis] - t_lons[np.newaxis, :]) * LON_CORRECTION  # (N, T)
     dists_deg = np.sqrt(dlat ** 2 + dlon ** 2)                # (N, T)
 
-    # Index of the nearest traffic point for each grid cell
-    nearest_idx = dists_deg.argmin(axis=1)                    # (N,)
-    nearest_dist_deg = dists_deg[np.arange(N), nearest_idx]   # (N,)
-    nearest_cong = t_cong[nearest_idx]                        # (N,)
+    # --- K nearest traffic points per grid cell (IDW blending) ---
+    # Using K=5 and np.argpartition (faster than argsort for large T).
+    K = min(5, T)
+    # argpartition gives the K smallest distances per row (unordered within K).
+    k_part    = np.argpartition(dists_deg, K - 1, axis=1)[:, :K]   # (N, K)
+    k_dists   = dists_deg[np.arange(N)[:, np.newaxis], k_part]      # (N, K)
+    k_cong    = t_cong[k_part]                                       # (N, K)
+
+    # IDW weights: 1 / distance²  (epsilon avoids divide-by-zero)
+    eps       = 1e-10
+    k_w       = 1.0 / (k_dists ** 2 + eps)                          # (N, K)
+    k_w_norm  = k_w / k_w.sum(axis=1, keepdims=True)                # (N, K), rows sum to 1
+
+    # Blended congestion: weighted average over K neighbours
+    blended_cong = (k_w_norm * k_cong).sum(axis=1)                  # (N,)
+
+    # Decay uses distance to the nearest of the K points (preserves the
+    # behaviour that cells far from any road get no traffic adjustment).
+    nearest_in_k     = k_dists.argmin(axis=1)                        # (N,)
+    nearest_dist_deg = k_dists[np.arange(N), nearest_in_k]          # (N,)
+    nearest_idx      = k_part[np.arange(N), nearest_in_k]           # (N,) traffic index
 
     # --- Traffic adjustment ---
-    # Exponential congestion curve (vectorised)
-    tf = traffic_factor_vec(nearest_cong)                     # (N,), in [0, 1]
-
-    # Linear distance decay: full effect at 0 m, zero at TRAFFIC_DECAY_RADIUS_M
-    dist_m = nearest_dist_deg * 111_000                       # (N,) in metres
+    tf     = traffic_factor_vec(blended_cong)                        # (N,), in [0, 1]
+    dist_m = nearest_dist_deg * 111_000                              # (N,) in metres
     decay  = np.clip(1.0 - dist_m / TRAFFIC_DECAY_RADIUS_M, 0.0, 1.0)  # (N,)
 
-    traffic_adj = tf * decay * TRAFFIC_WEIGHT                 # (N,) µg/m³
+    traffic_adj = tf * decay * TRAFFIC_WEIGHT                        # (N,) µg/m³
 
     # --- Wind adjustment ---
     if wind_speed == 0.0 or wind_deg is None:
         # No wind or unknown direction — apply no wind correction.
         wind_adj = np.zeros(N)
     else:
-        disp = wind_dispersal_factor(wind_speed)              # scalar 0–1
+        disp = wind_dispersal_factor(wind_speed)                     # scalar 0–1
 
-        # Vectorised direction factor for all cells simultaneously
-        dir_factor = wind_direction_factor_vec(
-            cell_lats, cell_lons, t_lats, t_lons, nearest_idx, wind_deg
-        )  # (N,), in [-1, 1]
+        # Blended wind-direction factor: compute bearing from each of the K
+        # nearest traffic points to the cell, then take an IDW-weighted
+        # circular mean (via sin/cos components) to avoid wrap-around artifacts.
+        k_t_lats = t_lats[k_part]                                    # (N, K)
+        k_t_lons = t_lons[k_part]                                    # (N, K)
 
-        wind_adj = dir_factor * disp * WIND_WEIGHT            # (N,) µg/m³
+        d_lat = cell_lats[:, np.newaxis] - k_t_lats                  # (N, K)
+        d_lon = (cell_lons[:, np.newaxis] - k_t_lons) * LON_CORRECTION  # (N, K)
+        k_dist_xy = np.sqrt(d_lat ** 2 + d_lon ** 2)                # (N, K)
+
+        k_bearing = np.arctan2(d_lon, d_lat)                         # (N, K)
+
+        # Weighted circular mean bearing
+        mean_sin = (k_w_norm * np.sin(k_bearing)).sum(axis=1)        # (N,)
+        mean_cos = (k_w_norm * np.cos(k_bearing)).sum(axis=1)        # (N,)
+        blended_bearing = np.arctan2(mean_sin, mean_cos)             # (N,)
+
+        wind_toward_rad = np.deg2rad((wind_deg + 180.0) % 360.0)     # scalar
+        alignment   = np.cos(blended_bearing - wind_toward_rad)      # (N,)
+        dir_factor  = -alignment                                      # +1=dispersal, -1=transport
+
+        # Zero out cells co-located with all K traffic points
+        min_k_dist = k_dist_xy.min(axis=1)                           # (N,)
+        dir_factor  = np.where(min_k_dist < 1e-6, 0.0, dir_factor)   # (N,)
+
+        wind_adj = dir_factor * disp * WIND_WEIGHT                   # (N,) µg/m³
 
     # --- Apply and clamp ---
     # traffic_adj is always positive (adds pollution near congested roads).
