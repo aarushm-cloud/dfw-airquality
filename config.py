@@ -51,6 +51,12 @@ PURPLEAIR_BASE_URL = "https://api.purpleair.com/v1"
 
 OPENAQ_API_KEY = os.getenv("OPENAQ_API_KEY")
 
+# --- Grid resolution ---
+# Number of lat/lon points along each axis of the interpolation grid.
+# 200 → 200×200 = 40,000 cells, fine enough that individual cell edges
+# are invisible even when zoomed in over a neighbourhood.
+GRID_RESOLUTION = 200
+
 # --- IDW interpolation ---
 # Power controls how steeply sensor influence drops with distance.
 # 3 (vs the old 2) gives a steeper falloff so nearby sensors dominate more.

@@ -1,11 +1,16 @@
 # viz/heatmap.py — Folium map builder (Phase 1: sensor dots, Phase 2: IDW heatmap, Phase 3: adjusted PM2.5)
 
 from functools import lru_cache
+from io import BytesIO
+import base64
 
 import numpy as np
 import folium
 import pandas as pd
 import pgeocode
+import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter
 from uszipcode import SearchEngine
 from config import MAP_CENTER, MAP_ZOOM, AQI_COLORS
 from data.purpleair import classify_pm25
@@ -95,6 +100,21 @@ def zip_to_coords(zip_code: str) -> tuple[float, float] | None:
     return (result.latitude, result.longitude)
 
 
+def _build_pm25_colormap() -> mcolors.LinearSegmentedColormap:
+    """
+    Build a matplotlib colormap from PM25_COLORSCALE so we can vectorise
+    color mapping across the entire grid in one operation.
+    """
+    vmax = PM25_COLORSCALE[-1][0]
+    stops = [(v / vmax, c) for v, c in PM25_COLORSCALE]
+    return mcolors.LinearSegmentedColormap.from_list("pm25", stops)
+
+
+# Module-level colormap and normaliser — built once, reused on every refresh.
+_PM25_CMAP = _build_pm25_colormap()
+_PM25_NORM = mcolors.Normalize(vmin=0, vmax=PM25_COLORSCALE[-1][0])
+
+
 def _add_idw_overlay(
     m: folium.Map,
     lats: np.ndarray,
@@ -102,27 +122,68 @@ def _add_idw_overlay(
     values: np.ndarray,
 ) -> None:
     """
-    Draw each cell of a pre-computed PM2.5 grid as a coloured rectangle on the map.
-    The caller is responsible for running IDW and apply_grid before calling this.
+    Render the PM2.5 grid as a smooth raster ImageOverlay instead of
+    individual rectangles, so there are no visible cell boundaries.
 
-    We use Rectangle markers rather than a raster image so this works
-    in any browser without extra plugins.
+    Pipeline (order matters):
+      1. Gaussian-smooth the raw PM2.5 values (sigma=1.5 cells) so that
+         the blending happens in PM2.5 space, not colour space — avoids
+         muddy colour artefacts at category boundaries.
+      2. Map the smoothed values to RGBA using the PM25 colour scale.
+      3. Set a uniform alpha (35 % opacity) so the basemap shows through.
+      4. Flip rows to north-up orientation (Folium's ImageOverlay expects
+         the top row of the PNG to correspond to the northern bound).
+      5. Encode to PNG in memory and embed as a base64 data URL.
     """
+    # Step 1: smooth PM2.5 values before colour mapping
+    smoothed = gaussian_filter(values.astype(float), sigma=1.5)
 
-    # Cell half-width in degrees (how big each rectangle is)
-    cell_lat = (lats[1, 0] - lats[0, 0]) / 2
-    cell_lon = (lons[0, 1] - lons[0, 0]) / 2
+    # Step 2: map to RGBA float array in [0, 1]  shape: (H, W, 4)
+    rgba = _PM25_CMAP(_PM25_NORM(smoothed))
 
-    # Create one FeatureGroup so all heatmap tiles are toggled together
+    # Step 3: set alpha channel (35 % opacity — same as the old rectangles)
+    rgba[:, :, 3] = 0.35
+
+    # Step 4: flip vertically — array row 0 is the southernmost latitude,
+    # but PNG row 0 must be the northernmost for Folium to orient it correctly.
+    rgba = np.flipud(rgba)
+
+    # Step 5: encode to base64 PNG
+    buf = BytesIO()
+    plt.imsave(buf, rgba, format="png")
+    encoded = base64.b64encode(buf.getvalue()).decode()
+
+    bounds = [
+        [float(lats.min()), float(lons.min())],  # south-west
+        [float(lats.max()), float(lons.max())],  # north-east
+    ]
+
     heatmap_group = folium.FeatureGroup(name="PM2.5 Heatmap", show=True)
+    folium.raster_layers.ImageOverlay(
+        image=f"data:image/png;base64,{encoded}",
+        bounds=bounds,
+        opacity=1.0,   # opacity is already baked into the RGBA alpha channel
+        name="PM2.5 Heatmap",
+    ).add_to(heatmap_group)
 
-    rows, cols = lats.shape
-    for i in range(rows):
-        for j in range(cols):
-            pm25_val = values[i, j]
-            color    = _pm25_to_hex(pm25_val)
-            lat      = lats[i, j]
-            lon      = lons[i, j]
+    # Sparse transparent rectangle grid for click popups.
+    # We subsample to ~30×30 cells so we get ~900 DOM elements instead of
+    # 200×200=40,000. Each rectangle is invisible but carries a popup with
+    # zip code, PM2.5 value, and AQI category. They share the same
+    # FeatureGroup so toggling the layer hides popups along with the image.
+    POPUP_GRID_SIZE = 30
+    row_step = max(1, lats.shape[0] // POPUP_GRID_SIZE)
+    col_step = max(1, lats.shape[1] // POPUP_GRID_SIZE)
+
+    # Half-widths of each popup cell in degrees
+    cell_lat = (lats[row_step, 0] - lats[0, 0]) / 2
+    cell_lon = (lons[0, col_step] - lons[0, 0]) / 2
+
+    for i in range(0, lats.shape[0], row_step):
+        for j in range(0, lats.shape[1], col_step):
+            pm25_val = float(values[i, j])   # unsmoothed value for accuracy
+            lat      = float(lats[i, j])
+            lon      = float(lons[i, j])
 
             category = classify_pm25(pm25_val)
             zip_code = _coords_to_zip(lat, lon)
@@ -135,13 +196,13 @@ def _add_idw_overlay(
 
             folium.Rectangle(
                 bounds=[
-                    [lat - cell_lat, lon - cell_lon],  # south-west corner
-                    [lat + cell_lat, lon + cell_lon],  # north-east corner
+                    [lat - cell_lat, lon - cell_lon],
+                    [lat + cell_lat, lon + cell_lon],
                 ],
-                color=None,         # no border stroke
+                color=None,
                 fill=True,
-                fill_color=color,
-                fill_opacity=0.35,  # semi-transparent so basemap shows through
+                fill_color="white",
+                fill_opacity=0.0,   # invisible — click target only
                 popup=folium.Popup(popup_text, max_width=180),
                 tooltip=f"{pm25_val:.1f} µg/m³",
             ).add_to(heatmap_group)

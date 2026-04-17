@@ -14,7 +14,7 @@
 import numpy as np
 import pandas as pd
 
-from config import BBOX, LON_CORRECTION, IDW_POWER, IDW_SEARCH_RADIUS_DEG, TRAFFIC_WEIGHT, TRAFFIC_DECAY_RADIUS_M
+from config import BBOX, LON_CORRECTION, IDW_POWER, IDW_SEARCH_RADIUS_DEG, TRAFFIC_WEIGHT, TRAFFIC_DECAY_RADIUS_M, GRID_RESOLUTION
 from engine.adjustments import (
     WIND_WEIGHT,
     WIND_SPEED_CAP,
@@ -28,11 +28,11 @@ from engine.adjustments import (
 
 def run_idw(
     df: pd.DataFrame,
-    grid_resolution: int = 100,
+    grid_resolution: int = GRID_RESOLUTION,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Returns three 2D arrays of the same shape: (lats_2d, lons_2d, interpolated_pm25).
-    grid_resolution controls grid density (100 = 100x100 points over Dallas).
+    grid_resolution controls grid density (200 = 200x200 points over Dallas).
 
     Changes vs Phase 3:
       - power is now IDW_POWER (3) from config, not hardcoded 2
@@ -107,7 +107,7 @@ def adjust_grid(
 
     The same exponential traffic curve and cosine wind direction logic used
     in features.py is applied here, but fully vectorised with NumPy so that
-    the entire 100×100 grid is processed in one set of array operations
+    the entire 200×200 grid is processed in one set of array operations
     (milliseconds, not seconds).
 
     Args:
