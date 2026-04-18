@@ -218,30 +218,33 @@ Instead, each cell looks at the 5 closest traffic points and takes a distance-we
 
 ## 8. Wind Dispersal Factor
 
-**File:** `engine/adjustments.py`, lines 64–69
+**File:** `engine/adjustments.py`, lines 64–74
 
 **Formula:**
 
 ```
-dispersal = min(1.0, wind_speed / 15.0)
+dispersal = min(1.0, (wind_speed / 15.0) ^ 0.5)
 ```
 
 **Parameters:**
 
 - Wind speed cap = 15.0 m/s (~34 mph)
+- Curve exponent = 0.5 (square root)
 - Output range: 0 to 1
 
 ### For the Environmental Scientist
 
 Wind is a powerful dispersal mechanism for PM2.5. Calm air lets pollution accumulate; strong wind blows it away (or brings it from somewhere else — that's handled by the direction factor). This formula converts wind speed into a 0-to-1 "dispersal strength" score.
 
-At 0 m/s (dead calm), dispersal is zero — no wind effect at all. At 7.5 m/s (~17 mph, a moderate breeze), dispersal is 0.5. At 15 m/s (~34 mph, a strong wind), dispersal maxes out at 1.0. Winds above 15 m/s don't increase the effect further because, in practice, PM2.5 dispersal saturates — there's diminishing returns once the air is already well-mixed.
+The relationship uses a square-root curve rather than a linear one because atmospheric dispersion research shows that PM2.5 concentration drops sharply in the first few m/s of wind — light-to-moderate wind does most of the dispersal work, while additional wind speed has diminishing returns. Physically, the initial transition from calm to light wind breaks up stagnant air and begins turbulent mixing, which is the dominant dispersal mechanism; once that mixing is established, doubling the wind speed doesn't double the dispersal.
+
+At 0 m/s (dead calm), dispersal is zero — no wind effect at all. At 3.75 m/s (~8 mph, a gentle breeze), dispersal is already 0.5 — half of maximum effect from just a quarter of maximum wind speed. At 7.5 m/s (~17 mph, a moderate breeze), dispersal is 0.71. At 15 m/s (~34 mph, a strong wind), dispersal maxes out at 1.0. Winds above 15 m/s don't increase the effect further because dispersal saturates once the air is already well-mixed.
 
 The 15 m/s cap is conservative. It corresponds to roughly a sustained 30+ mph wind, which is relatively rare in Dallas outside of storm events.
 
 ### For the Programmer
 
-`np.clip(wind_speed / WIND_SPEED_CAP, 0.0, 1.0)`. Pure linear scaling capped at 1.0. This scalar is computed once per refresh cycle (wind is fetched as a single metro-wide reading from OWM) and broadcast across all grid cells. It modulates the maximum possible wind adjustment: `wind_adj = direction_factor * dispersal * WIND_WEIGHT`, where `WIND_WEIGHT = 10.0` ug/m3.
+`np.clip((wind_speed / WIND_SPEED_CAP) ** 0.5, 0.0, 1.0)`. Square-root scaling capped at 1.0. The `** 0.5` exponent produces a concave curve that front-loads dispersal at lower wind speeds compared to the previous linear version. This scalar is computed once per refresh cycle (wind is fetched as a single metro-wide reading from OWM) and broadcast across all grid cells. It modulates the maximum possible wind adjustment: `wind_adj = direction_factor * dispersal * WIND_WEIGHT`, where `WIND_WEIGHT = 10.0` ug/m3.
 
 ---
 

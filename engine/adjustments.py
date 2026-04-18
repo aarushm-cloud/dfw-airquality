@@ -65,8 +65,13 @@ def wind_dispersal_factor(wind_speed: float) -> float:
     """
     Returns a 0–1 value representing wind speed's dispersal strength.
     0 = calm (no dispersal), 1 = strong wind (maximum dispersal).
+
+    Uses a square-root curve because atmospheric dispersion research shows
+    PM2.5 concentration drops sharply in the first few m/s of wind — light
+    to moderate wind does most of the dispersal work, while additional wind
+    speed has diminishing returns.
     """
-    return float(np.clip(wind_speed / WIND_SPEED_CAP, 0.0, 1.0))
+    return float(np.clip((wind_speed / WIND_SPEED_CAP) ** 0.5, 0.0, 1.0))
 
 
 def wind_direction_factor(
