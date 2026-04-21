@@ -55,7 +55,7 @@ def save_snapshot(
         sensor_df:  DataFrame from build_features() with pm25 (raw) and feature columns.
         traffic_df: DataFrame with [lat, lon, congestion] (kept for signature compat).
         wind:       Dict with wind_speed and wind_deg.
-        timestamp:  Snapshot time (UTC). Defaults to datetime.utcnow().
+        timestamp:  Snapshot time (UTC). Defaults to datetime.now(timezone.utc).
     """
     if timestamp is None:
         timestamp = datetime.now(timezone.utc)
