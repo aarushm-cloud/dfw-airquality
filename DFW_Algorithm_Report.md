@@ -47,9 +47,17 @@ Simple ratio inversion: `1 - (current / freeflow)`, clipped to `[0, 1]` via `np.
 
 ## 2. PM2.5 Data Cleaning & Classification
 
-**Files:** `data/purpleair.py`, lines 81–85 (cleaning) and lines 94–110 (classification)
+**Files:** `data/purpleair.py` — `fetch_sensors()` (cleaning + EPA correction) and `classify_pm25()` (classification)
 
-**Cleaning rules:** Drop NaN, drop negative values, keep zero
+**Cleaning rules:** Drop NaN, drop negative values, keep zero, then apply the EPA correction.
+
+**EPA correction formula (PurpleAir only):**
+
+```
+PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71
+```
+
+where `RH` is relative humidity in percent.
 
 **Classification (EPA breakpoints):**
 
@@ -64,11 +72,35 @@ Simple ratio inversion: `1 - (current / freeflow)`, clipped to `[0, 1]` via `np.
 
 ### For the Environmental Scientist
 
-PurpleAir sensors go offline sometimes and return null — those aren't real readings, so we discard them. Negative PM2.5 values indicate a sensor malfunction (the laser particle counter can produce negative artifacts when humidity confuses it), so those are discarded too. However, a zero is kept because it genuinely means very clean air — PurpleAir returns null (not zero) for offline sensors, so zero is a real measurement. The classification follows the EPA's standard PM2.5 breakpoints, which are the same thresholds used on AirNow.gov.
+**Dropping bad readings.** PurpleAir sensors go offline sometimes and return null — those aren't real readings, so we discard them. Negative PM2.5 values indicate a sensor malfunction (the laser particle counter can produce negative artifacts when humidity confuses it), so those are discarded too. However, a zero is kept because it genuinely means very clean air — PurpleAir returns null (not zero) for offline sensors, so zero is a real measurement.
+
+**Why PurpleAir readings are corrected.** PurpleAir uses a low-cost laser particle counter, which systematically *overestimates* PM2.5 — especially at higher humidity. Water droplets suspended in humid air scatter the laser light and get counted as particles, inflating the reading. To make PurpleAir readings comparable to federal reference-grade monitors (the "real" PM2.5 that EPA standards and health guidance are built around), the EPA published a regression formula derived from years of co-location studies where PurpleAir sensors were placed next to regulatory monitors across the United States:
+
+> `PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71`
+
+This formula is documented in the EPA's AirNow Fire and Smoke Map technical documentation and is the standard correction used in U.S. regulatory and public health contexts. Applying it at the data source means every downstream algorithm in this dashboard (IDW, traffic/wind grid adjustments, EPA AQI classification, color mapping) sees a PM2.5 value that genuinely matches what a reference-grade monitor would have read at the same location.
+
+**What happens if humidity is missing.** If a given sensor didn't return humidity for a reading, the raw PurpleAir value is kept and the row is flagged with `epa_corrected = 0` so the audit trail is clear. The original uncorrected reading is always preserved in a `pm25_raw` column.
+
+**OpenAQ readings are NOT corrected.** OpenAQ data comes from federal reference-grade monitors that are already calibrated — applying a PurpleAir correction to them would corrupt the data. A `source` column (`purpleair` vs. `openaq`) keeps the distinction auditable after the two datasets are concatenated.
+
+**Classification.** The classification follows the EPA's standard PM2.5 breakpoints, the same thresholds used on AirNow.gov.
 
 ### For the Programmer
 
-`dropna(subset=["pm25"])` removes null rows, then a boolean filter `df["pm25"] >= 0` removes negatives. The `classify_pm25()` function is a simple if/elif cascade against EPA breakpoint constants. The 10-minute average field (`pm2.5_10minute`) is used rather than real-time to reduce noise. OpenAQ data follows the same cleaning rules and is concatenated with PurpleAir via `pd.concat`.
+**Cleaning pipeline** (all in `data/purpleair.py`):
+
+1. `dropna(subset=["pm25"])` removes null rows.
+2. Boolean filter `df["pm25"] >= 0` removes negatives.
+3. `apply_epa_correction(df)` is called on the surviving rows *before* the DataFrame leaves the module.
+
+**EPA correction implementation.** `apply_epa_correction()` copies `pm25` into `pm25_raw`, then for rows where `humidity` is not null computes `0.52 * pm25_raw - 0.085 * humidity + 5.71` and writes it back to the `pm25` column. Corrected values are clipped to `>= 0` to handle the small negatives the formula can produce at very low concentrations. Rows without humidity keep their raw value and are flagged with `epa_corrected = 0`. The PurpleAir API request in `fetch_sensors()` includes `humidity` in its `fields` list so the data is available to the correction step.
+
+**OpenAQ handling.** `data/openaq.py` returns data tagged with `source = "openaq"` and is never passed through `apply_epa_correction()`. For schema consistency with PurpleAir — so `pd.concat` in `app.py` produces a uniform frame — OpenAQ rows explicitly carry `pm25_raw = NaN` and `epa_corrected = 0`. The `source` column makes it possible to separate the two populations again for audit. NaN in `pm25_raw` is the canonical signal for "no laser-counter raw exists".
+
+**Classification.** The `classify_pm25()` function is a simple if/elif cascade against EPA breakpoint constants. The 10-minute average field (`pm2.5_10minute`) is used rather than real-time to reduce noise.
+
+**Calibration note.** `TRAFFIC_WEIGHT` (8.0 µg/m³), `WIND_WEIGHT` (10.0 µg/m³), and the classification breakpoints were all chosen against *reference-grade* PM2.5 levels reported in the literature, not PurpleAir-raw readings. Applying the EPA correction at the source aligns the live pipeline with those parameters without any recalibration.
 
 ---
 
@@ -421,10 +453,14 @@ When you click on the heatmap, a popup shows the zip code, PM2.5 value, and AQI 
 
 ## Data Flow Summary
 
+`fetch_sensors()` returns `[sensor_id, name, lat, lon, pm25 (EPA-corrected), pm25_raw, epa_corrected, source]`. `fetch_openaq()` returns the same columns with `pm25_raw = NaN` and `epa_corrected = 0` so `pd.concat` produces a uniform frame.
+
 ```
 PurpleAir API ──> fetch_sensors() ──┐
+        (raw pm25 → apply_epa_correction → pm25, pm25_raw, epa_corrected)
                                     ├──> pd.concat ──> build_features() ──> run_idw()
 OpenAQ API ─────> fetch_openaq() ──┘                        |                  |
+        (reference-grade; pm25_raw=NaN, epa_corrected=0)    |                  |
                                                             |                  v
 TomTom API ─────> fetch_traffic() ─────────────────────────>|           IDW grid (60x60)
                                                             |                  |

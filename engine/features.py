@@ -20,7 +20,9 @@ if __name__ == "__main__":
 #   2. The same adjustment logic is applied POST-IDW to grid cells in interpolation.py,
 #      where IDW alone has no knowledge of roads or wind.
 #
-# The returned DataFrame has the original pm25 (raw, unmodified) plus new columns:
+# The returned DataFrame keeps pm25 and pm25_raw untouched (pm25 is already
+# EPA-corrected at the source for PurpleAir rows; pm25_raw is the uncorrected
+# reading for PurpleAir and NaN for OpenAQ) and adds these feature columns:
 #   traffic_factor      — exponential congestion factor (0–1) for the nearest road
 #   wind_term           — signed wind adjustment (µg/m³) that would be subtracted
 #   nearest_congestion  — raw congestion score of the nearest traffic sample point
@@ -49,22 +51,29 @@ def build_features(
 ) -> pd.DataFrame:
     """
     Compute traffic and wind feature columns for each sensor.
-    Does NOT modify pm25 — the raw sensor reading is preserved as-is.
+    Does NOT modify pm25 — the EPA-corrected (PurpleAir) or reference-grade
+    (OpenAQ) reading is preserved as-is.
 
     Args:
-        sensor_df:  DataFrame with [sensor_id, name, lat, lon, pm25]
+        sensor_df:  DataFrame with [sensor_id, name, lat, lon, pm25, source]
+                    and optionally [pm25_raw, epa_corrected] for PurpleAir rows.
         traffic_df: DataFrame with [lat, lon, congestion] from fetch_traffic()
         wind:       Dict with wind_speed and wind_deg from fetch_wind()
 
     Returns:
-        Copy of sensor_df with pm25_raw added (copy of pm25) plus new feature
-        columns: traffic_factor, wind_term, nearest_congestion, distance_to_road_m,
-        direction_factor, dispersal.
+        Copy of sensor_df with pm25 / pm25_raw / epa_corrected untouched plus
+        new feature columns: traffic_factor, wind_term, nearest_congestion,
+        distance_to_road_m, direction_factor, dispersal.
     """
     df = sensor_df.copy()
 
-    # pm25_raw preserves the original sensor reading for history.csv and popups.
-    df["pm25_raw"] = df["pm25"]
+    # pm25_raw comes in from data/purpleair.py (uncorrected PurpleAir reading).
+    # OpenAQ rows have no such column; after concat they carry NaN, which is
+    # the right signal — OpenAQ is reference-grade and has no separate "raw"
+    # reading to preserve. Do NOT overwrite the column here; that would destroy
+    # the audit trail for PurpleAir rows.
+    if "pm25_raw" not in df.columns:
+        df["pm25_raw"] = float("nan")
 
     wind_speed = wind.get("wind_speed") or 0.0
     wind_deg   = wind.get("wind_deg")   # may be None if OWM didn't return it

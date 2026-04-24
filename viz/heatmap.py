@@ -241,8 +241,17 @@ def build_sensor_map(
         category = classify_pm25(row["pm25"])
         color    = AQI_COLORS.get(category, "gray")
 
-        # Show both adjusted (traffic+wind) and raw sensor reading in the popup
-        raw = row.get("pm25_raw", row["pm25"])
+        # For PurpleAir rows, show both the EPA-corrected value (what downstream
+        # code uses) and the original uncorrected laser reading. OpenAQ is
+        # reference-grade with no uncorrected counterpart, so show just pm25.
+        raw = row.get("pm25_raw")
+        if row.get("source") == "purpleair" and pd.notna(raw):
+            pm25_html = (
+                f"PM2.5: {row['pm25']:.1f} µg/m³ (EPA-corrected)<br>"
+                f"Raw: {float(raw):.1f} µg/m³"
+            )
+        else:
+            pm25_html = f"PM2.5: {row['pm25']:.1f} µg/m³"
 
         if row["pm25"] == 0.0:
             zero_note = "<br><i style='color:#888;font-size:11px;'>⚠ Sensor reported 0 — may be offline or malfunctioning.</i>"
@@ -251,7 +260,7 @@ def build_sensor_map(
 
         popup_text = (
             f"<b>{row['name']}</b><br>"
-            f"PM2.5: {row['pm25']:.1f} µg/m³<br>"
+            f"{pm25_html}<br>"
             f"Category: {category.replace('_', ' ').title()}"
             f"{zero_note}"
         )

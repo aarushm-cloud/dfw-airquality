@@ -21,8 +21,9 @@ COLUMNS = [
     "sensor_id",
     "lat",
     "lon",
-    "pm25",             # raw sensor reading (unmodified — sensors already see real-world effects)
-    "pm25_raw",         # same as pm25; kept for schema compatibility
+    "pm25",             # EPA-corrected (PurpleAir) or reference-grade (OpenAQ) reading
+    "pm25_raw",         # original uncorrected PurpleAir reading; NaN for OpenAQ
+    "epa_corrected",    # 1 = EPA formula applied, 0 = raw fallback / OpenAQ
     "source",
     "wind_speed",
     "wind_deg",
@@ -46,10 +47,12 @@ def save_snapshot(
     """
     Append one training record per sensor to data/history.csv.
 
-    sensor_df is the output of build_features(): pm25 is the RAW sensor reading
-    and the feature columns (traffic_factor, wind_term, direction_factor, etc.)
-    are already computed and stored as separate columns. We read them directly
-    from the row rather than recomputing them here.
+    sensor_df is the output of build_features(): pm25 is the EPA-corrected
+    (PurpleAir) or reference-grade (OpenAQ) reading, pm25_raw holds the
+    uncorrected PurpleAir value (NaN for OpenAQ), and the feature columns
+    (traffic_factor, wind_term, direction_factor, etc.) are already computed
+    and stored as separate columns. We read them directly from the row rather
+    than recomputing them here.
 
     Args:
         sensor_df:  DataFrame from build_features() with pm25 (raw) and feature columns.
@@ -76,9 +79,11 @@ def save_snapshot(
             "sensor_id":          row["sensor_id"],
             "lat":                row["lat"],
             "lon":                row["lon"],
-            # pm25 is the raw sensor reading — build_features no longer modifies it.
+            # pm25 is the EPA-corrected value (PurpleAir) or reference-grade
+            # reading (OpenAQ); build_features() does not modify it further.
             "pm25":               row["pm25"],
-            "pm25_raw":           row.get("pm25_raw", row["pm25"]),
+            "pm25_raw":           row.get("pm25_raw", float("nan")),
+            "epa_corrected":      row.get("epa_corrected", 0),
             "source":             row.get("source", "unknown"),
             "wind_speed":         wind_speed,
             "wind_deg":           wind_deg,

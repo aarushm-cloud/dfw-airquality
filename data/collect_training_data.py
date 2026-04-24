@@ -1,0 +1,662 @@
+"""
+collect_training_data.py
+ 
+Builds data/history.csv — the training dataset for the Phase 4 Random Forest
+PM2.5 interpolation model for the DFW Air Quality Dashboard.
+ 
+Data sources (all free, all auditable):
+    1. PurpleAir API      — hourly PM2.5 per sensor (with A/B channel validation)
+    2. Meteostat          — hourly wind speed + direction at DFW airport
+                            (Meteostat wraps NOAA's Integrated Surface Database,
+                             the same archive NWS uses for official observations)
+    3. EPA correction     — standard PurpleAir-to-reference-grade formula applied
+                            per EPA's publicly documented methodology
+    4. Temporal features  — traffic proxies derived from timestamps
+ 
+Quality controls:
+    - PurpleAir A/B channel disagreement flagging (drops rows where A and B
+      differ by more than AB_DISAGREEMENT_THRESHOLD percent)
+    - EPA PM2.5 humidity correction applied to all readings
+    - Per-sensor checkpointing so the script can resume after a crash
+    - Full audit log written to data/collection_log.txt
+    - Data quality report written to data/quality_report.json
+ 
+Usage:
+    python collect_training_data.py                # full 6-month collection
+    python collect_training_data.py --days 30      # shorter date range
+    python collect_training_data.py --resume       # resume from checkpoints
+ 
+Required .env variables:
+    PURPLEAIR_API_KEY   — your existing PurpleAir read key
+ 
+Dependencies not already in requirements.txt:
+    meteostat  (pip install meteostat)
+    pyarrow    (pip install pyarrow) — for parquet checkpoints
+"""
+ 
+from __future__ import annotations
+ 
+import argparse
+import json
+import logging
+import os
+import sys
+import time
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Optional
+ 
+import pandas as pd
+import requests
+from dotenv import load_dotenv
+ 
+load_dotenv()
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURATION — all magic numbers live here so auditors can review them
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+PURPLEAIR_API_KEY: Optional[str] = os.getenv("PURPLEAIR_API_KEY")
+ 
+# Dallas–Fort Worth bounding box
+BBOX = {
+    "north":  33.10,
+    "south":  32.55,
+    "east":  -96.50,
+    "west":  -97.25,
+}
+ 
+# DFW International Airport coordinates (for Meteostat nearest-station lookup)
+DFW_AIRPORT_LAT = 32.8998
+DFW_AIRPORT_LON = -97.0403
+ 
+# Data quality thresholds
+AB_DISAGREEMENT_THRESHOLD = 0.30    # drop rows where channels A and B differ >30%
+PM25_MAX_VALID             = 500.0   # PM2.5 above this is almost always sensor error
+PM25_MIN_VALID             = 0.0     # negative readings are sensor error
+ 
+# Network behavior
+REQUEST_TIMEOUT_SEC = 30
+REQUEST_PAUSE_SEC   = 0.5
+MAX_RETRIES         = 3
+RETRY_BACKOFF_SEC   = 2.0
+ 
+# File paths
+DATA_DIR          = Path("data")
+OUTPUT_CSV        = DATA_DIR / "history.csv"
+CHECKPOINT_DIR    = DATA_DIR / ".checkpoints"
+LOG_FILE          = DATA_DIR / "collection_log.txt"
+QUALITY_REPORT    = DATA_DIR / "quality_report.json"
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGGING — written to both console and file for audit trails
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+def setup_logging() -> logging.Logger:
+    """Configure logging to write to both stdout and a persistent log file."""
+    DATA_DIR.mkdir(exist_ok=True)
+ 
+    logger = logging.getLogger("dfw_collector")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+ 
+    fmt = logging.Formatter(
+        "%(asctime)s | %(levelname)-7s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+ 
+    console = logging.StreamHandler(sys.stdout)
+    console.setFormatter(fmt)
+    logger.addHandler(console)
+ 
+    file_handler = logging.FileHandler(LOG_FILE, mode="a")
+    file_handler.setFormatter(fmt)
+    logger.addHandler(file_handler)
+ 
+    return logger
+ 
+ 
+log = setup_logging()
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA QUALITY REPORT — running tally, saved to JSON at end
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+@dataclass
+class QualityReport:
+    """Tracks data quality metrics so the city can audit the dataset."""
+    collection_started: str = ""
+    collection_finished: str = ""
+    date_range_start: str = ""
+    date_range_end: str = ""
+ 
+    sensors_discovered: int = 0
+    sensors_with_data: int = 0
+    sensors_dropped_no_data: int = 0
+ 
+    raw_purpleair_rows: int = 0
+    rows_dropped_ab_disagreement: int = 0
+    rows_dropped_out_of_range: int = 0
+    final_row_count: int = 0
+ 
+    epa_correction_applied: bool = False
+    wind_data_source: str = ""
+    wind_hours_available: int = 0
+    wind_hours_gap_filled: int = 0
+ 
+    warnings: list = field(default_factory=list)
+ 
+    def save(self) -> None:
+        """Write report as JSON for environmental department review."""
+        QUALITY_REPORT.write_text(json.dumps(asdict(self), indent=2))
+        log.info(f"Quality report saved to {QUALITY_REPORT}")
+ 
+ 
+report = QualityReport()
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# HTTP HELPERS — retry with exponential backoff, rate limit handling
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+def http_get_with_retry(
+    url: str,
+    params: Optional[dict] = None,
+    headers: Optional[dict] = None,
+) -> Optional[requests.Response]:
+    """GET with exponential backoff on 5xx and 429 responses. Returns None if all retries fail."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SEC)
+ 
+            if resp.status_code == 429:
+                wait = RETRY_BACKOFF_SEC * (2 ** (attempt - 1))
+                log.warning(f"Rate limited. Waiting {wait}s before retry {attempt}/{MAX_RETRIES}")
+                time.sleep(wait)
+                continue
+ 
+            if 500 <= resp.status_code < 600:
+                wait = RETRY_BACKOFF_SEC * (2 ** (attempt - 1))
+                log.warning(f"Server error {resp.status_code}. Retry {attempt}/{MAX_RETRIES} in {wait}s")
+                time.sleep(wait)
+                continue
+ 
+            return resp
+ 
+        except (requests.Timeout, requests.ConnectionError) as e:
+            wait = RETRY_BACKOFF_SEC * (2 ** (attempt - 1))
+            log.warning(f"Network error: {e}. Retry {attempt}/{MAX_RETRIES} in {wait}s")
+            time.sleep(wait)
+ 
+    log.error(f"All {MAX_RETRIES} retries failed for {url}")
+    return None
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 1: DISCOVER DFW PURPLEAIR SENSORS
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+def get_dfw_sensors() -> list[dict]:
+    """Fetch all PurpleAir sensors within the DFW bounding box."""
+    log.info("Step 1: Discovering DFW PurpleAir sensors")
+ 
+    resp = http_get_with_retry(
+        "https://api.purpleair.com/v1/sensors",
+        params={
+            "fields": "sensor_index,name,latitude,longitude,last_seen",
+            "nwlng": BBOX["west"],
+            "nwlat": BBOX["north"],
+            "selng": BBOX["east"],
+            "selat": BBOX["south"],
+        },
+        headers={"X-API-Key": PURPLEAIR_API_KEY},
+    )
+ 
+    if resp is None or not resp.ok:
+        raise RuntimeError("Failed to fetch PurpleAir sensor list.")
+ 
+    data = resp.json()
+    fields = data["fields"]
+    rows = data["data"]
+ 
+    col = {name: fields.index(name) for name in fields}
+ 
+    sensors = [
+        {
+            "sensor_index": row[col["sensor_index"]],
+            "name": row[col["name"]],
+            "latitude": row[col["latitude"]],
+            "longitude": row[col["longitude"]],
+        }
+        for row in rows
+        if row[col["latitude"]] is not None and row[col["longitude"]] is not None
+    ]
+ 
+    report.sensors_discovered = len(sensors)
+    log.info(f"  Discovered {len(sensors)} sensors in DFW bounding box")
+    return sensors
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 2: PULL PURPLEAIR HISTORY (WITH CHECKPOINTING)
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+def fetch_sensor_history(
+    sensor_index: int,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> pd.DataFrame:
+    """
+    Pull hourly PM2.5 for one sensor, including A and B channels (for later
+    cross-validation) and humidity (for EPA correction). Chunked into 2-week
+    windows — PurpleAir's API limits each request to 14 days.
+    """
+    url = f"https://api.purpleair.com/v1/sensors/{sensor_index}/history"
+    headers = {"X-API-Key": PURPLEAIR_API_KEY}
+ 
+    rows_collected: list[dict] = []
+    chunk_start = start_dt
+ 
+    while chunk_start < end_dt:
+        chunk_end = min(chunk_start + timedelta(days=14), end_dt)
+ 
+        resp = http_get_with_retry(
+            url,
+            params={
+                "start_timestamp": int(chunk_start.timestamp()),
+                "end_timestamp": int(chunk_end.timestamp()),
+                "average": 60,
+                "fields": "pm2.5_atm_a,pm2.5_atm_b,humidity",
+            },
+            headers=headers,
+        )
+ 
+        if resp is None:
+            log.warning(f"  Skipping chunk {chunk_start.date()} for sensor {sensor_index}")
+            chunk_start = chunk_end
+            continue
+ 
+        if resp.status_code == 404:
+            chunk_start = chunk_end
+            continue
+ 
+        if not resp.ok:
+            log.warning(f"  Sensor {sensor_index} chunk {chunk_start.date()}: HTTP {resp.status_code}")
+            chunk_start = chunk_end
+            continue
+ 
+        data = resp.json()
+        fields = data.get("fields", [])
+        data_rows = data.get("data", [])
+ 
+        if not data_rows or "time_stamp" not in fields:
+            chunk_start = chunk_end
+            continue
+ 
+        col = {name: fields.index(name) for name in fields}
+        for row in data_rows:
+            rows_collected.append({
+                "timestamp": pd.to_datetime(row[col["time_stamp"]], unit="s", utc=True),
+                "sensor_index": sensor_index,
+                "pm25_a": row[col["pm2.5_atm_a"]] if "pm2.5_atm_a" in col else None,
+                "pm25_b": row[col["pm2.5_atm_b"]] if "pm2.5_atm_b" in col else None,
+                "humidity": row[col["humidity"]] if "humidity" in col else None,
+            })
+ 
+        chunk_start = chunk_end
+        time.sleep(REQUEST_PAUSE_SEC)
+ 
+    return pd.DataFrame(rows_collected) if rows_collected else pd.DataFrame()
+ 
+ 
+def collect_all_purpleair(
+    sensors: list[dict],
+    start_dt: datetime,
+    end_dt: datetime,
+    resume: bool,
+) -> pd.DataFrame:
+    """
+    Pull history for every sensor with per-sensor checkpointing.
+    If --resume is passed, skip sensors whose checkpoint already exists.
+    """
+    log.info(f"Step 2: Collecting PurpleAir history ({start_dt.date()} → {end_dt.date()})")
+    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+ 
+    dfs = []
+    for i, sensor in enumerate(sensors, 1):
+        sid = sensor["sensor_index"]
+        checkpoint = CHECKPOINT_DIR / f"sensor_{sid}.parquet"
+ 
+        if resume and checkpoint.exists():
+            df = pd.read_parquet(checkpoint)
+            log.info(f"  [{i}/{len(sensors)}] Sensor {sid}: loaded {len(df)} rows from checkpoint")
+            dfs.append(df)
+            continue
+ 
+        log.info(f"  [{i}/{len(sensors)}] Sensor {sid} ({sensor['name']})")
+        df = fetch_sensor_history(sid, start_dt, end_dt)
+ 
+        if df.empty:
+            report.sensors_dropped_no_data += 1
+            log.info(f"    No data returned")
+            continue
+ 
+        df["latitude"] = sensor["latitude"]
+        df["longitude"] = sensor["longitude"]
+ 
+        # Save checkpoint so we can resume after interruption
+        df.to_parquet(checkpoint, index=False)
+        dfs.append(df)
+        log.info(f"    Collected {len(df)} rows (checkpoint saved)")
+ 
+    if not dfs:
+        raise RuntimeError("No PurpleAir data collected. Check API key and sensor list.")
+ 
+    combined = pd.concat(dfs, ignore_index=True)
+    report.sensors_with_data = len(dfs)
+    report.raw_purpleair_rows = len(combined)
+    log.info(f"  Collected {len(combined):,} raw rows across {len(dfs)} sensors")
+    return combined
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 3: DATA QUALITY CONTROLS ON PURPLEAIR DATA
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+def validate_ab_channels(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    PurpleAir sensors contain two laser counters (channels A and B). Per
+    EPA guidance, if the channels disagree significantly, the reading is
+    not trustworthy — usually indicates a failing counter, bug ingress, or
+    local contamination.
+ 
+    Standard practice: drop rows where |A - B| / mean(A, B) > 30%.
+    The surviving reading is the average of the two channels.
+    """
+    initial = len(df)
+    valid = df.dropna(subset=["pm25_a", "pm25_b"]).copy()
+ 
+    avg = (valid["pm25_a"] + valid["pm25_b"]) / 2
+    diff = (valid["pm25_a"] - valid["pm25_b"]).abs()
+    # Guard against divide-by-zero: rows with avg=0 are treated as in-agreement
+    disagreement = diff / avg.replace(0, pd.NA)
+ 
+    kept = valid[disagreement.fillna(0.0) <= AB_DISAGREEMENT_THRESHOLD].copy()
+    kept["pm25_raw"] = (kept["pm25_a"] + kept["pm25_b"]) / 2
+ 
+    dropped = initial - len(kept)
+    report.rows_dropped_ab_disagreement = dropped
+    pct = dropped / max(initial, 1) * 100
+    log.info(f"  A/B validation: dropped {dropped:,} rows ({pct:.1f}%)")
+    return kept.drop(columns=["pm25_a", "pm25_b"])
+ 
+ 
+def apply_epa_correction(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Apply the EPA's correction formula for PurpleAir sensors:
+ 
+        PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71
+ 
+    PurpleAir sensors are known to overestimate PM2.5, especially at higher
+    humidity. This formula is documented in EPA's AirNow Fire and Smoke Map
+    technical notes and is the standard correction in U.S. regulatory and
+    public health contexts.
+ 
+    Rows with missing humidity fall back to the raw reading and are flagged
+    (epa_corrected = 0) so downstream analysis can down-weight them.
+    """
+    log.info("  Applying EPA PM2.5 correction formula")
+ 
+    corrected = df.copy()
+    has_rh = corrected["humidity"].notna()
+ 
+    corrected.loc[has_rh, "pm25"] = (
+        0.52 * corrected.loc[has_rh, "pm25_raw"]
+        - 0.085 * corrected.loc[has_rh, "humidity"]
+        + 5.71
+    )
+    corrected.loc[~has_rh, "pm25"] = corrected.loc[~has_rh, "pm25_raw"]
+    corrected["epa_corrected"] = has_rh.astype(int)
+ 
+    # The correction formula can produce small negatives at low concentrations
+    corrected["pm25"] = corrected["pm25"].clip(lower=0)
+ 
+    report.epa_correction_applied = True
+    pct_missing = (~has_rh).sum() / max(len(corrected), 1) * 100
+    log.info(f"    EPA correction applied to {has_rh.sum():,} rows; "
+             f"{pct_missing:.1f}% lacked humidity and kept raw value")
+    return corrected
+ 
+ 
+def filter_range(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows where PM2.5 is outside physically plausible bounds."""
+    initial = len(df)
+    mask = (df["pm25"] >= PM25_MIN_VALID) & (df["pm25"] < PM25_MAX_VALID)
+    filtered = df[mask].copy()
+    dropped = initial - len(filtered)
+    report.rows_dropped_out_of_range = dropped
+    log.info(f"  Range filter ({PM25_MIN_VALID}–{PM25_MAX_VALID} µg/m³): "
+             f"dropped {dropped:,} rows")
+    return filtered
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 4: PULL WIND DATA FROM METEOSTAT (NOAA ISD ARCHIVE)
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+def fetch_wind_data(start_dt: datetime, end_dt: datetime) -> pd.DataFrame:
+    """
+    Fetch hourly wind speed and direction at DFW airport from Meteostat.
+ 
+    Meteostat wraps NOAA's Integrated Surface Database (ISD), which is the
+    same archive the National Weather Service uses for official hourly
+    observations. It's free and requires no API key when used via the
+    Meteostat Python library.
+    """
+    log.info("Step 4: Fetching wind data from Meteostat (NOAA ISD archive)")
+ 
+    try:
+        # Imported here so script doesn't fail at startup if not installed
+        from meteostat import Point, Hourly
+    except ImportError:
+        msg = "meteostat not installed. Install with: pip install meteostat"
+        log.warning(f"  {msg} — falling back to DFW climate averages")
+        report.warnings.append(msg)
+        return pd.DataFrame()
+ 
+    try:
+        dfw = Point(DFW_AIRPORT_LAT, DFW_AIRPORT_LON, alt=185)
+        data = Hourly(dfw, start_dt.replace(tzinfo=None), end_dt.replace(tzinfo=None))
+        wx = data.fetch()
+ 
+        if wx.empty:
+            log.warning("  Meteostat returned no data for date range")
+            return pd.DataFrame()
+ 
+        wx = wx.reset_index().rename(columns={"time": "timestamp"})
+        wx["timestamp"] = pd.to_datetime(wx["timestamp"]).dt.tz_localize("UTC")
+        # Meteostat returns wind speed in km/h — convert to m/s to match project convention
+        wx["wind_speed_ms"] = wx["wspd"] / 3.6
+        wx["wind_dir_deg"] = wx["wdir"]
+ 
+        result = wx[["timestamp", "wind_speed_ms", "wind_dir_deg"]].dropna(
+            subset=["wind_speed_ms"]
+        )
+        report.wind_data_source = "Meteostat (NOAA ISD)"
+        report.wind_hours_available = len(result)
+        log.info(f"  Retrieved {len(result):,} hourly wind observations")
+        return result
+ 
+    except Exception as e:
+        log.error(f"  Meteostat fetch failed: {e}")
+        report.warnings.append(f"Wind data fetch failed: {e}")
+        return pd.DataFrame()
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 5: TRAFFIC PROXY FEATURES FROM TIMESTAMPS
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+def add_traffic_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Generate temporal features that correlate with traffic density.
+    TomTom historical data requires a paid enterprise license, so we use a
+    time-based proxy. TxDOT publishes DFW congestion data showing highly
+    consistent daily and weekly patterns that these features capture well.
+ 
+    Vectorized (no .apply) for speed on multi-million-row datasets.
+    """
+    log.info("Step 5: Engineering temporal traffic features")
+ 
+    local = df["timestamp"].dt.tz_convert("America/Chicago")
+    hour = local.dt.hour
+    dow = local.dt.dayofweek
+ 
+    df = df.copy()
+    df["hour"] = hour
+    df["day_of_week"] = dow
+    df["is_weekend"] = (dow >= 5).astype(int)
+ 
+    weekday = dow < 5
+    df["is_am_rush"] = (weekday & (hour >= 7) & (hour <= 9)).astype(int)
+    df["is_pm_rush"] = (weekday & (hour >= 16) & (hour <= 19)).astype(int)
+ 
+    # Vectorized traffic index: defaults overridden in order of specificity
+    traffic = pd.Series(0.4, index=df.index)
+    traffic[df["is_weekend"] == 1] = 0.3
+    traffic[(hour >= 10) & (hour <= 15) & weekday] = 0.5
+    traffic[((hour >= 20) | (hour <= 5))] = 0.1
+    traffic[df["is_am_rush"] == 1] = 1.0
+    traffic[df["is_pm_rush"] == 1] = 1.0
+    df["traffic_index"] = traffic
+ 
+    return df
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP 6: MERGE AND WRITE FINAL CSV
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+def build_final_dataset(pa_df: pd.DataFrame, wind_df: pd.DataFrame) -> pd.DataFrame:
+    """Join cleaned PurpleAir data with wind data and write history.csv."""
+    log.info("Step 6: Merging datasets and writing final CSV")
+ 
+    pa_df = pa_df.copy()
+    pa_df["timestamp"] = pa_df["timestamp"].dt.floor("h")
+ 
+    if not wind_df.empty:
+        merged = pa_df.merge(wind_df, on="timestamp", how="left")
+        missing_wind = merged["wind_speed_ms"].isna().sum()
+        report.wind_hours_gap_filled = int(missing_wind)
+ 
+        # Gap-fill with forward then backward fill — defensible since wind
+        # at a single metro is temporally autocorrelated hour-to-hour
+        merged["wind_speed_ms"] = merged["wind_speed_ms"].ffill().bfill()
+        merged["wind_dir_deg"] = merged["wind_dir_deg"].ffill().bfill()
+ 
+        # Last-resort fallback: DFW climate normals
+        if merged["wind_speed_ms"].isna().any():
+            merged["wind_speed_ms"] = merged["wind_speed_ms"].fillna(4.5)
+            merged["wind_dir_deg"] = merged["wind_dir_deg"].fillna(180.0)
+    else:
+        log.warning("  No wind data — using DFW climate normals for all rows")
+        merged = pa_df.copy()
+        merged["wind_speed_ms"] = 4.5
+        merged["wind_dir_deg"] = 180.0
+ 
+    merged = add_traffic_features(merged)
+    merged = merged.sort_values(["timestamp", "sensor_index"]).reset_index(drop=True)
+ 
+    final_columns = [
+        "timestamp", "sensor_index", "latitude", "longitude",
+        "pm25",              # EPA-corrected, model target
+        "pm25_raw",          # uncorrected reading (kept for audit trail)
+        "epa_corrected",     # 1 if EPA correction applied, 0 otherwise
+        "humidity",
+        "wind_speed_ms", "wind_dir_deg",
+        "hour", "day_of_week", "is_weekend",
+        "is_am_rush", "is_pm_rush", "traffic_index",
+    ]
+    final_columns = [c for c in final_columns if c in merged.columns]
+    result = merged[final_columns]
+ 
+    DATA_DIR.mkdir(exist_ok=True)
+    result.to_csv(OUTPUT_CSV, index=False)
+    report.final_row_count = len(result)
+ 
+    log.info(f"  Wrote {len(result):,} rows to {OUTPUT_CSV}")
+    log.info(f"    Date range: {result['timestamp'].min()} → {result['timestamp'].max()}")
+    log.info(f"    Unique sensors: {result['sensor_index'].nunique()}")
+    return result
+ 
+ 
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments."""
+    parser = argparse.ArgumentParser(
+        description="Build history.csv for DFW Air Quality Dashboard Phase 4 model."
+    )
+    parser.add_argument("--days", type=int, default=180,
+                        help="How many days back to collect (default: 180)")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume from per-sensor checkpoints if they exist")
+    return parser.parse_args()
+ 
+ 
+def main() -> None:
+    args = parse_args()
+ 
+    if not PURPLEAIR_API_KEY:
+        log.error("PURPLEAIR_API_KEY not set in .env — cannot continue")
+        sys.exit(1)
+ 
+    end_dt = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_dt = end_dt - timedelta(days=args.days)
+ 
+    report.collection_started = datetime.now(timezone.utc).isoformat()
+    report.date_range_start = start_dt.isoformat()
+    report.date_range_end = end_dt.isoformat()
+ 
+    log.info("=" * 70)
+    log.info("DFW Air Quality Dashboard — Training Data Collection")
+    log.info(f"Date range: {start_dt.date()} → {end_dt.date()} ({args.days} days)")
+    log.info(f"Resume mode: {args.resume}")
+    log.info("=" * 70)
+ 
+    try:
+        sensors = get_dfw_sensors()
+        raw_pa = collect_all_purpleair(sensors, start_dt, end_dt, args.resume)
+ 
+        # Quality pipeline: A/B validation → EPA correction → range filter
+        clean_pa = validate_ab_channels(raw_pa)
+        clean_pa = apply_epa_correction(clean_pa)
+        clean_pa = filter_range(clean_pa)
+ 
+        wind = fetch_wind_data(start_dt, end_dt)
+        final = build_final_dataset(clean_pa, wind)
+ 
+        report.collection_finished = datetime.now(timezone.utc).isoformat()
+        report.save()
+ 
+        log.info("=" * 70)
+        log.info("Collection complete.")
+        log.info(f"  history.csv:        {OUTPUT_CSV} ({len(final):,} rows)")
+        log.info(f"  Quality report:     {QUALITY_REPORT}")
+        log.info(f"  Audit log:          {LOG_FILE}")
+        log.info("=" * 70)
+ 
+    except Exception as e:
+        log.exception(f"Collection failed: {e}")
+        report.warnings.append(f"Run failed: {e}")
+        report.save()
+        sys.exit(1)
+ 
+ 
+if __name__ == "__main__":
+    main()

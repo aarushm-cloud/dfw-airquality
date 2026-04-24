@@ -74,12 +74,18 @@ def fetch_openaq() -> pd.DataFrame:
     Fetch live PM2.5 readings from OpenAQ v3 for the Dallas bounding box.
 
     Returns a DataFrame with columns:
-        sensor_id, name, lat, lon, pm25, source
+        sensor_id, name, lat, lon, pm25, pm25_raw, epa_corrected, source
+
+    OpenAQ readings come from reference-grade monitors and are NOT passed
+    through the EPA PurpleAir correction. pm25_raw is NaN and epa_corrected
+    is 0 so the frame lines up with the PurpleAir schema for concat.
 
     If OpenAQ is unreachable or returns no data, returns an empty DataFrame
     so the app can continue with PurpleAir data alone.
     """
-    empty = pd.DataFrame(columns=["sensor_id", "name", "lat", "lon", "pm25", "source"])
+    empty = pd.DataFrame(
+        columns=["sensor_id", "name", "lat", "lon", "pm25", "pm25_raw", "epa_corrected", "source"]
+    )
 
     try:
         api_key = _get_api_key()
@@ -122,16 +128,24 @@ def fetch_openaq() -> pd.DataFrame:
             continue
 
         rows.append({
-            "sensor_id": f"oaq-{loc_id}",
-            "name":      name,
-            "lat":       lat,
-            "lon":       lon,
-            "pm25":      pm25,
-            "source":    "openaq",
+            "sensor_id":     f"oaq-{loc_id}",
+            "name":          name,
+            "lat":           lat,
+            "lon":           lon,
+            "pm25":          pm25,
+            # Reference-grade monitors — no uncorrected counterpart and no EPA
+            # correction applied. Populate explicitly so the schema matches
+            # PurpleAir when the two are concatenated downstream.
+            "pm25_raw":      float("nan"),
+            "epa_corrected": 0,
+            "source":        "openaq",
         })
 
     if not rows:
         logger.warning("OpenAQ returned locations but no valid PM2.5 readings.")
         return empty
 
-    return pd.DataFrame(rows, columns=["sensor_id", "name", "lat", "lon", "pm25", "source"])
+    return pd.DataFrame(
+        rows,
+        columns=["sensor_id", "name", "lat", "lon", "pm25", "pm25_raw", "epa_corrected", "source"],
+    )

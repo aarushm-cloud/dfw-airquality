@@ -112,7 +112,7 @@ except Exception as e:
 # --- Stats row ---
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Active Sensors",       len(df))
-col2.metric("Avg PM2.5 (sensors)",  f"{df['pm25'].mean():.1f} µg/m³")
+col2.metric("Avg PM2.5 (EPA-corrected)", f"{df['pm25'].mean():.1f} µg/m³")
 col3.metric("Wind Speed",           f"{wind['wind_speed']:.1f} m/s")
 col4.metric("Wind Direction",       f"{wind['wind_deg']:.0f}°")
 
