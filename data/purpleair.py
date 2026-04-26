@@ -29,6 +29,11 @@ def apply_epa_correction(df: pd.DataFrame) -> pd.DataFrame:
 
         PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71
 
+    TODO: this is duplicated in data/collect_training_data.py:apply_epa_correction
+    (the training script can't import from this module without booting up the
+    live PurpleAir endpoint). Both must be edited in lockstep. Follow-up:
+    extract into a shared data/corrections.py module.
+
     PurpleAir's laser particle counter systematically overestimates PM2.5,
     especially at higher humidity, because water droplets scatter laser light
     and get counted as particles. The EPA's regression formula, derived from

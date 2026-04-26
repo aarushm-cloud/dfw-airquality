@@ -102,6 +102,12 @@ This formula is documented in the EPA's AirNow Fire and Smoke Map technical docu
 
 **Calibration note.** `TRAFFIC_WEIGHT` (8.0 µg/m³), `WIND_WEIGHT` (10.0 µg/m³), and the classification breakpoints were all chosen against *reference-grade* PM2.5 levels reported in the literature, not PurpleAir-raw readings. Applying the EPA correction at the source aligns the live pipeline with those parameters without any recalibration.
 
+**Training-pipeline parity.** The Phase 4 training-data builder (`data/collect_training_data.py`) applies the same EPA PM2.5 correction formula
+
+> `PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71`
+
+with the same `pm25` / `pm25_raw` / `epa_corrected` column convention used live, plus an additional A/B-channel disagreement filter (per EPA guidance: drop any historical hour where PurpleAir's two laser counters differ by more than 30%). The A/B filter is only available in the training pipeline because the historical API exposes both channels; the live `pm2.5_10minute` field is already an internal A/B average. **The EPA correction is implemented in two files** — `data/purpleair.py` for the live pipeline and `data/collect_training_data.py` for the training pipeline — and the two implementations must be edited in lockstep. A follow-up refactor will extract the formula into a shared `data/corrections.py` module.
+
 ---
 
 ## 3. Geographic Distance Correction (Cosine Correction)

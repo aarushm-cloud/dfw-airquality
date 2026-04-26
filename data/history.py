@@ -1,8 +1,14 @@
-# data/history.py — Accumulate air quality snapshots for ML training (Phase 4)
+# data/history.py — Accumulate live dashboard snapshots
 #
-# Each call to save_snapshot() appends one row per sensor to data/history.csv.
-# Over time this builds a labeled dataset for training a Random Forest model
-# that can replace IDW interpolation.
+# Each call to save_snapshot() appends one row per sensor to
+# data/dashboard_snapshots.csv. These are live-pipeline snapshots taken while
+# the Streamlit app or scripts/collector.py is running.
+#
+# Phase 4 training data is NOT collected here. The canonical training set is
+# data/history.csv, built by data/collect_training_data.py from PurpleAir's
+# historical API (see CLAUDE.md). Live snapshots and the training set live in
+# separate files on purpose, so the training script can overwrite history.csv
+# without corrupting the dashboard's accumulated state.
 
 import os
 import fcntl
@@ -13,8 +19,10 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# CSV lives next to this file in the data/ directory
-HISTORY_PATH = os.path.join(os.path.dirname(__file__), "history.csv")
+# CSV lives next to this file in the data/ directory.
+# Training data (history.csv) is owned by data/collect_training_data.py;
+# this writer owns dashboard_snapshots.csv so the two never collide.
+HISTORY_PATH = os.path.join(os.path.dirname(__file__), "dashboard_snapshots.csv")
 
 COLUMNS = [
     "timestamp",
@@ -45,7 +53,7 @@ def save_snapshot(
     timestamp: datetime | None = None,
 ) -> None:
     """
-    Append one training record per sensor to data/history.csv.
+    Append one snapshot record per sensor to data/dashboard_snapshots.csv.
 
     sensor_df is the output of build_features(): pm25 is the EPA-corrected
     (PurpleAir) or reference-grade (OpenAQ) reading, pm25_raw holds the
@@ -114,7 +122,7 @@ def save_snapshot(
 
 def load_history() -> pd.DataFrame:
     """
-    Read data/history.csv and return it as a DataFrame.
+    Read data/dashboard_snapshots.csv and return it as a DataFrame.
     Returns an empty DataFrame with the correct columns if the file doesn't exist.
     """
     if not os.path.isfile(HISTORY_PATH):
@@ -128,7 +136,7 @@ def load_history() -> pd.DataFrame:
 
 def get_history_stats() -> dict:
     """
-    Return a summary of the collected training data.
+    Return a summary of the collected dashboard snapshots.
 
     Returns:
         total_records:  total row count

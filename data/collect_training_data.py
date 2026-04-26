@@ -35,7 +35,7 @@ Dependencies not already in requirements.txt:
 """
  
 from __future__ import annotations
- 
+
 import argparse
 import json
 import logging
@@ -46,27 +46,25 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
- 
+
 import pandas as pd
 import requests
 from dotenv import load_dotenv
- 
+
+# Script lives in data/ but imports project-root modules. Put the project
+# root on sys.path so `from config import BBOX` works regardless of CWD.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from config import BBOX, PURPLEAIR_BASE_URL  # noqa: E402
+
 load_dotenv()
- 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION — all magic numbers live here so auditors can review them
 # ─────────────────────────────────────────────────────────────────────────────
- 
+
 PURPLEAIR_API_KEY: Optional[str] = os.getenv("PURPLEAIR_API_KEY")
- 
-# Dallas–Fort Worth bounding box
-BBOX = {
-    "north":  33.10,
-    "south":  32.55,
-    "east":  -96.50,
-    "west":  -97.25,
-}
- 
+
 # DFW International Airport coordinates (for Meteostat nearest-station lookup)
 DFW_AIRPORT_LAT = 32.8998
 DFW_AIRPORT_LON = -97.0403
@@ -204,9 +202,10 @@ def get_dfw_sensors() -> list[dict]:
     log.info("Step 1: Discovering DFW PurpleAir sensors")
  
     resp = http_get_with_retry(
-        "https://api.purpleair.com/v1/sensors",
+        f"{PURPLEAIR_BASE_URL}/sensors",
         params={
             "fields": "sensor_index,name,latitude,longitude,last_seen",
+            "location_type": 0,   # outdoor only — match data/purpleair.py
             "nwlng": BBOX["west"],
             "nwlat": BBOX["north"],
             "selng": BBOX["east"],
@@ -254,7 +253,7 @@ def fetch_sensor_history(
     cross-validation) and humidity (for EPA correction). Chunked into 2-week
     windows — PurpleAir's API limits each request to 14 days.
     """
-    url = f"https://api.purpleair.com/v1/sensors/{sensor_index}/history"
+    url = f"{PURPLEAIR_BASE_URL}/sensors/{sensor_index}/history"
     headers = {"X-API-Key": PURPLEAIR_API_KEY}
  
     rows_collected: list[dict] = []
@@ -397,16 +396,19 @@ def validate_ab_channels(df: pd.DataFrame) -> pd.DataFrame:
 def apply_epa_correction(df: pd.DataFrame) -> pd.DataFrame:
     """
     Apply the EPA's correction formula for PurpleAir sensors:
- 
+
         PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71
- 
+
     PurpleAir sensors are known to overestimate PM2.5, especially at higher
     humidity. This formula is documented in EPA's AirNow Fire and Smoke Map
     technical notes and is the standard correction in U.S. regulatory and
     public health contexts.
- 
+
     Rows with missing humidity fall back to the raw reading and are flagged
     (epa_corrected = 0) so downstream analysis can down-weight them.
+
+    TODO: this duplicates data/purpleair.py:apply_epa_correction. Both must be
+    edited in lockstep. Follow-up: extract into a shared data/corrections.py.
     """
     log.info("  Applying EPA PM2.5 correction formula")
  
@@ -543,20 +545,20 @@ def add_traffic_features(df: pd.DataFrame) -> pd.DataFrame:
 def build_final_dataset(pa_df: pd.DataFrame, wind_df: pd.DataFrame) -> pd.DataFrame:
     """Join cleaned PurpleAir data with wind data and write history.csv."""
     log.info("Step 6: Merging datasets and writing final CSV")
- 
+
     pa_df = pa_df.copy()
     pa_df["timestamp"] = pa_df["timestamp"].dt.floor("h")
- 
+
     if not wind_df.empty:
         merged = pa_df.merge(wind_df, on="timestamp", how="left")
         missing_wind = merged["wind_speed_ms"].isna().sum()
         report.wind_hours_gap_filled = int(missing_wind)
- 
+
         # Gap-fill with forward then backward fill — defensible since wind
         # at a single metro is temporally autocorrelated hour-to-hour
         merged["wind_speed_ms"] = merged["wind_speed_ms"].ffill().bfill()
         merged["wind_dir_deg"] = merged["wind_dir_deg"].ffill().bfill()
- 
+
         # Last-resort fallback: DFW climate normals
         if merged["wind_speed_ms"].isna().any():
             merged["wind_speed_ms"] = merged["wind_speed_ms"].fillna(4.5)
@@ -566,18 +568,33 @@ def build_final_dataset(pa_df: pd.DataFrame, wind_df: pd.DataFrame) -> pd.DataFr
         merged = pa_df.copy()
         merged["wind_speed_ms"] = 4.5
         merged["wind_dir_deg"] = 180.0
- 
+
     merged = add_traffic_features(merged)
-    merged = merged.sort_values(["timestamp", "sensor_index"]).reset_index(drop=True)
- 
+
+    # Align column names to the live data/history.py schema (the long-term
+    # standard for training rows). Also tag every row with source="purpleair"
+    # so concat with any future OpenAQ training set stays auditable.
+    merged = merged.rename(columns={
+        "sensor_index":  "sensor_id",
+        "latitude":      "lat",
+        "longitude":     "lon",
+        "wind_speed_ms": "wind_speed",
+        "wind_dir_deg":  "wind_deg",
+        "hour":          "hour_of_day",
+    })
+    merged["source"] = "purpleair"
+
+    merged = merged.sort_values(["timestamp", "sensor_id"]).reset_index(drop=True)
+
     final_columns = [
-        "timestamp", "sensor_index", "latitude", "longitude",
+        "timestamp", "sensor_id", "lat", "lon",
         "pm25",              # EPA-corrected, model target
         "pm25_raw",          # uncorrected reading (kept for audit trail)
         "epa_corrected",     # 1 if EPA correction applied, 0 otherwise
+        "source",
         "humidity",
-        "wind_speed_ms", "wind_dir_deg",
-        "hour", "day_of_week", "is_weekend",
+        "wind_speed", "wind_deg",
+        "hour_of_day", "day_of_week", "is_weekend",
         "is_am_rush", "is_pm_rush", "traffic_index",
     ]
     final_columns = [c for c in final_columns if c in merged.columns]
@@ -589,7 +606,7 @@ def build_final_dataset(pa_df: pd.DataFrame, wind_df: pd.DataFrame) -> pd.DataFr
  
     log.info(f"  Wrote {len(result):,} rows to {OUTPUT_CSV}")
     log.info(f"    Date range: {result['timestamp'].min()} → {result['timestamp'].max()}")
-    log.info(f"    Unique sensors: {result['sensor_index'].nunique()}")
+    log.info(f"    Unique sensors: {result['sensor_id'].nunique()}")
     return result
  
  

@@ -15,8 +15,10 @@ if __name__ == "__main__":
 # of the raw reading would double-count those effects.
 #
 # Instead, this function computes traffic and wind values PER SENSOR and stores them
-# as separate columns. These columns are used for two purposes:
-#   1. Training data for the Random Forest model (Phase 4) — stored in history.csv.
+# as separate columns. These columns are used for:
+#   1. Live dashboard snapshots — stored in data/dashboard_snapshots.csv via
+#      data/history.py:save_snapshot. (NOT the Phase 4 training set; that is built
+#      separately by data/collect_training_data.py from historical PurpleAir data.)
 #   2. The same adjustment logic is applied POST-IDW to grid cells in interpolation.py,
 #      where IDW alone has no knowledge of roads or wind.
 #
@@ -120,7 +122,7 @@ def build_features(
         # Stored for training data; not applied to the sensor reading.
         wt = dir_factor * disp * WIND_WEIGHT
 
-        # Record distance in metres for history.csv
+        # Record distance in metres for dashboard_snapshots.csv
         dist_m = float(distance_deg * 111_000) if distance_deg is not None else float("nan")
 
         traffic_factors.append(tf)
