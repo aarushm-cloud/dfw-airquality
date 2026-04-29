@@ -1,5 +1,12 @@
 # engine/features.py — Feature engineering: compute per-sensor traffic and wind columns
 #
+# TODO (Phase 4 inference): the Random Forest also trains on
+# `dist_to_highway_m` from `data/spatial_features.compute_distance_to_highway`.
+# Grid cells passed into the model at inference time will need the same
+# lookup applied per cell. Add it here (or wherever the live feature pipeline
+# feeds the model) before turning on RF inference. Static feature, cached on
+# disk — same call as in `data/collect_training_data.py:collect_all_purpleair`.
+#
 # Allow running this file directly for the __main__ verification block:
 #   python engine/features.py
 # When run as a script, Python puts engine/ on sys.path[0] instead of the project

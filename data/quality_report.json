@@ -1,0 +1,108 @@
+{
+  "collection_started": "2026-04-28T01:03:01.404531+00:00",
+  "collection_finished": "2026-04-28T01:14:52.374414+00:00",
+  "date_range_start": "2025-10-30T00:00:00+00:00",
+  "date_range_end": "2026-04-28T00:00:00+00:00",
+  "sensors_discovered": 27,
+  "sensors_with_data": 27,
+  "sensors_dropped_no_data": 0,
+  "sensors_dropped_ab_failure": 8,
+  "sensors_dropped_ab_failure_ids": [
+    12969,
+    53365,
+    87721,
+    90785,
+    123409,
+    123453,
+    128645,
+    280474
+  ],
+  "ab_failure_borderline": [
+    {
+      "sensor_id": 128645,
+      "failure_rate": 0.9991,
+      "rows_failed": 4314,
+      "rows_total": 4318,
+      "outcome": "dropped"
+    },
+    {
+      "sensor_id": 90785,
+      "failure_rate": 0.9956,
+      "rows_failed": 4298,
+      "rows_total": 4317,
+      "outcome": "dropped"
+    },
+    {
+      "sensor_id": 12969,
+      "failure_rate": 0.988,
+      "rows_failed": 4264,
+      "rows_total": 4316,
+      "outcome": "dropped"
+    },
+    {
+      "sensor_id": 123409,
+      "failure_rate": 0.8785,
+      "rows_failed": 2487,
+      "rows_total": 2831,
+      "outcome": "dropped"
+    },
+    {
+      "sensor_id": 280474,
+      "failure_rate": 0.8113,
+      "rows_failed": 3503,
+      "rows_total": 4318,
+      "outcome": "dropped"
+    },
+    {
+      "sensor_id": 53365,
+      "failure_rate": 0.7528,
+      "rows_failed": 3252,
+      "rows_total": 4320,
+      "outcome": "dropped"
+    },
+    {
+      "sensor_id": 87721,
+      "failure_rate": 0.6936,
+      "rows_failed": 2974,
+      "rows_total": 4288,
+      "outcome": "dropped"
+    },
+    {
+      "sensor_id": 123453,
+      "failure_rate": 0.6104,
+      "rows_failed": 2637,
+      "rows_total": 4320,
+      "outcome": "dropped"
+    },
+    {
+      "sensor_id": 120681,
+      "failure_rate": 0.4461,
+      "rows_failed": 1925,
+      "rows_total": 4315,
+      "outcome": "survived"
+    },
+    {
+      "sensor_id": 280940,
+      "failure_rate": 0.4087,
+      "rows_failed": 1729,
+      "rows_total": 4231,
+      "outcome": "survived"
+    }
+  ],
+  "raw_purpleair_rows": 107316,
+  "rows_dropped_ab_nan": 0,
+  "rows_dropped_bad_sensors": 33028,
+  "rows_dropped_ab_threshold": 5881,
+  "rows_dropped_ab_disagreement": 38909,
+  "rows_dropped_out_of_range": 0,
+  "final_row_count": 68407,
+  "epa_correction_applied": true,
+  "rows_uncorrected_humidity_missing": 0,
+  "wind_data_source": "Meteostat (NOAA ISD)",
+  "wind_hours_available": 4321,
+  "wind_hours_gap_filled": 0,
+  "wind_hours_climate_fallback": 0,
+  "dist_to_highway_min_m": 7.008528114863227,
+  "dist_to_highway_max_m": 8535.994809277054,
+  "warnings": []
+}
