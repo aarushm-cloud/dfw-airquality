@@ -1,4 +1,4 @@
-# engine/predictor.py — Phase 4 Random Forest inference for grid cells.
+# ml/predictor.py — Phase 4 Random Forest inference for grid cells.
 #
 # Loads models/rf_phase4.pkl once per process and predicts PM2.5 at every cell
 # of the dashboard grid. Replaces the IDW + post-IDW adjustment path because
@@ -23,8 +23,8 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
-MODEL_PATH = ROOT / "models" / "rf_phase4.pkl"
-METADATA_PATH = ROOT / "models" / "rf_phase4_metadata.json"
+MODEL_PATH = ROOT / "ml" / "models" / "rf_phase4.pkl"
+METADATA_PATH = ROOT / "ml" / "models" / "rf_phase4_metadata.json"
 
 PM25_MIN_PLAUSIBLE = 0.0
 PM25_MAX_PLAUSIBLE = 500.0
@@ -49,7 +49,7 @@ def load_model() -> tuple[object, dict]:
     if not MODEL_PATH.exists():
         raise FileNotFoundError(
             f"RF model not found at {MODEL_PATH}. "
-            f"Run scripts/train_phase4_rf.py to build it."
+            f"Run ml/research/train_phase4_rf.py to build it."
         )
     if not METADATA_PATH.exists():
         raise FileNotFoundError(
@@ -73,7 +73,7 @@ def load_model() -> tuple[object, dict]:
 
 
 def _add_traffic_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Mirror of data/collect_training_data.py:add_traffic_features. Same rules,
+    """Mirror of ml/training/collect_training_data.py:add_traffic_features. Same rules,
     same column names, same dtypes — any drift here silently breaks inference."""
     # America/Chicago — matches training. Timezone is the most likely silent
     # train/inference drift; do not change without updating training too.
@@ -115,7 +115,7 @@ def build_features(
     are scalars broadcast across all cells (matching the live data sources
     the dashboard already uses — one OWM call per metro for wind, mean
     PurpleAir humidity for the metro)."""
-    from data.spatial_features import compute_distance_to_highway
+    from data.spatial.spatial_features import compute_distance_to_highway
 
     if timestamp.tzinfo is None:
         raise ValueError("timestamp must be tz-aware (UTC)")
@@ -159,8 +159,8 @@ def _assert_schema_parity() -> None:
         raise RuntimeError(
             "FEATURE SCHEMA MISMATCH between live inference and trained model.\n"
             f"  Expected (rf_phase4_metadata.json): {expected}\n"
-            f"  Got (engine/predictor.build_features): {actual}\n"
-            "  Train/inference drift detected — fix engine/predictor.py before "
+            f"  Got (ml/predictor.build_features): {actual}\n"
+            "  Train/inference drift detected — fix ml/predictor.py before "
             "deploying."
         )
     log.info("  Feature schema parity check: PASS")

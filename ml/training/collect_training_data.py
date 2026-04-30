@@ -1,7 +1,7 @@
 """
 collect_training_data.py
  
-Builds data/history.csv — the training dataset for the Phase 4 Random Forest
+Builds ml/data/history.csv — the training dataset for the Phase 4 Random Forest
 PM2.5 interpolation model for the DFW Air Quality Dashboard.
  
 Data sources (all free, all auditable):
@@ -21,8 +21,8 @@ Quality controls:
       [0, 1], e.g. 0.50 = 50% relative difference).
     - EPA PM2.5 humidity correction applied to all readings
     - Per-sensor checkpointing so the script can resume after a crash
-    - Full audit log written to data/collection_log.txt
-    - Data quality report written to data/quality_report.json
+    - Full audit log written to ml/data/collection_log.txt
+    - Data quality report written to ml/data/quality_report.json
  
 Usage:
     python collect_training_data.py                # full 6-month collection
@@ -54,9 +54,9 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 
-# Script lives in data/ but imports project-root modules. Put the project
+# Script lives in ml/training/ but imports project-root modules. Put the project
 # root on sys.path so `from config import BBOX` works regardless of CWD.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from config import BBOX, PURPLEAIR_BASE_URL  # noqa: E402
 
@@ -89,7 +89,7 @@ MAX_RETRIES         = 3
 RETRY_BACKOFF_SEC   = 2.0
  
 # File paths
-DATA_DIR          = Path("data")
+DATA_DIR          = Path("ml/data")
 OUTPUT_CSV        = DATA_DIR / "history.csv"
 CHECKPOINT_DIR    = DATA_DIR / ".checkpoints"
 LOG_FILE          = DATA_DIR / "collection_log.txt"
@@ -230,7 +230,7 @@ def get_dfw_sensors() -> list[dict]:
         f"{PURPLEAIR_BASE_URL}/sensors",
         params={
             "fields": "sensor_index,name,latitude,longitude,last_seen",
-            "location_type": 0,   # outdoor only — match data/purpleair.py
+            "location_type": 0,   # outdoor only — match data/ingestion/purpleair.py
             "nwlng": BBOX["west"],
             "nwlat": BBOX["north"],
             "selng": BBOX["east"],
@@ -355,7 +355,7 @@ def collect_all_purpleair(
 
     # Imported lazily so the script can still run if OSMnx/geopy are missing
     # at startup — the failure surfaces here, scoped to this feature.
-    from data.spatial_features import compute_distance_to_highway
+    from data.spatial.spatial_features import compute_distance_to_highway
 
     log.info(f"Step 1.5: Computing highway distances for {len(sensors)} sensors")
     distances: list[float] = []
@@ -540,7 +540,7 @@ def apply_epa_correction(df: pd.DataFrame) -> pd.DataFrame:
     Rows with missing humidity fall back to the raw reading and are flagged
     (epa_corrected = 0) so downstream analysis can down-weight them.
 
-    TODO: this duplicates data/purpleair.py:apply_epa_correction. Both must be
+    TODO: this duplicates data/ingestion/purpleair.py:apply_epa_correction. Both must be
     edited in lockstep. Follow-up: extract into a shared data/corrections.py.
     """
     log.info("  Applying EPA PM2.5 correction formula")
@@ -729,7 +729,7 @@ def build_final_dataset(pa_df: pd.DataFrame, wind_df: pd.DataFrame) -> pd.DataFr
                     f"(4.5 m/s, 180°). Model will learn a constant-wind artifact at "
                     f"those timestamps.")
 
-    # Align column names to the live data/history.py schema (the long-term
+    # Align column names to the live data/ingestion/history.py schema (the long-term
     # standard for training rows). Also tag every row with source="purpleair"
     # so concat with any future OpenAQ training set stays auditable.
     merged = merged.rename(columns={

@@ -15,11 +15,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 from config import BBOX  # noqa: E402
-from engine.predictor import load_model, predict_grid  # noqa: E402
+from ml.predictor import load_model, predict_grid  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("smoketest")
 
-HISTORY_CSV = ROOT / "data" / "history.csv"
+HISTORY_CSV = ROOT / "ml" / "data" / "history.csv"
 GRID_RES = 60
 
 

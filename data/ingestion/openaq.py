@@ -1,4 +1,4 @@
-# data/openaq.py — OpenAQ v3 sensor data ingestion
+# data/ingestion/openaq.py — OpenAQ v3 sensor data ingestion
 
 import logging
 import os

@@ -1,6 +1,6 @@
 """Phase 4 — Random Forest PM2.5 spatial interpolator.
 
-Trains on data/history.csv. Evaluates with leave-one-sensor-out CV, then
+Trains on ml/data/history.csv. Evaluates with leave-one-sensor-out CV, then
 fits the production model on all sensors. See CLAUDE.md for context.
 """
 
@@ -19,10 +19,10 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import LeaveOneGroupOut
 
-ROOT = Path(__file__).resolve().parent.parent
-HISTORY_CSV = ROOT / "data" / "history.csv"
-MODELS_DIR = ROOT / "models"
-OUTPUT_DIR = ROOT / "scripts" / "output"
+ROOT = Path(__file__).resolve().parent.parent.parent
+HISTORY_CSV = ROOT / "ml" / "data" / "history.csv"
+MODELS_DIR = ROOT / "ml" / "models"
+OUTPUT_DIR = ROOT / "ml" / "analysis" / "output"
 
 FEATURES = [
     "lat",

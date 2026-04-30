@@ -1,4 +1,4 @@
-# data/purpleair.py — PurpleAir sensor data ingestion
+# data/ingestion/purpleair.py — PurpleAir sensor data ingestion
 #
 # Every PurpleAir reading returned by this module has been EPA-corrected at
 # the source: pm25 is the corrected value, pm25_raw is the original laser-
@@ -29,7 +29,7 @@ def apply_epa_correction(df: pd.DataFrame) -> pd.DataFrame:
 
         PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71
 
-    TODO: this is duplicated in data/collect_training_data.py:apply_epa_correction
+    TODO: this is duplicated in ml/training/collect_training_data.py:apply_epa_correction
     (the training script can't import from this module without booting up the
     live PurpleAir endpoint). Both must be edited in lockstep. Follow-up:
     extract into a shared data/corrections.py module.

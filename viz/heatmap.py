@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter
 from uszipcode import SearchEngine
 from config import MAP_CENTER, MAP_ZOOM, AQI_COLORS
-from data.purpleair import classify_pm25
+from data.ingestion.purpleair import classify_pm25
 
 # pgeocode Nominatim instance for forward zip-code lookup (zip → lat/lon).
 # Used by zip_to_coords() for any future sidebar search feature.

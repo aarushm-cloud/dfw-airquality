@@ -1,6 +1,6 @@
 """Phase 4 train/inference parity check.
 
-Picks a sensor from data/history.csv, builds features for that lat/lon at
+Picks a sensor from ml/data/history.csv, builds features for that lat/lon at
 that exact training-row timestamp using the live inference pipeline, and
 diffs the result against the row history.csv recorded.
 
@@ -21,10 +21,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
-from engine.predictor import build_features  # noqa: E402
+from ml.predictor import build_features  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,7 +33,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("parity")
 
-HISTORY_CSV = ROOT / "data" / "history.csv"
+HISTORY_CSV = ROOT / "ml" / "data" / "history.csv"
 
 STRUCTURAL = [
     "lat", "lon", "dist_to_highway_m",
@@ -110,7 +110,7 @@ def main() -> None:
             "is_am_rush", "is_pm_rush", "traffic_index",
         ]):
             log.error("  → timestamp-derived feature drift (likely timezone). "
-                      "Training uses America/Chicago — verify engine/predictor.py "
+                      "Training uses America/Chicago — verify ml/predictor.py "
                       "tz_convert matches.")
         sys.exit(1)
 

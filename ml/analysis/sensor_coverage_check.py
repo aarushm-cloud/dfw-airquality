@@ -2,7 +2,7 @@
 sensor_coverage_check.py
 
 One-off spatial-coverage analysis of the surviving sensors in
-data/history.csv. Reports grid-cell uniformity, nearest-neighbor
+ml/data/history.csv. Reports grid-cell uniformity, nearest-neighbor
 distances, and shows where the A/B-rejected sensors sat geographically
 so we can judge whether the holes left behind are dense or sparse.
 """
@@ -21,16 +21,16 @@ from dotenv import load_dotenv
 from geopy.distance import geodesic
 from matplotlib.patches import Rectangle
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config import BBOX, PURPLEAIR_BASE_URL  # noqa: E402
 
 load_dotenv(PROJECT_ROOT / ".env")
 
-HISTORY_CSV     = PROJECT_ROOT / "data" / "history.csv"
-QUALITY_REPORT  = PROJECT_ROOT / "data" / "quality_report.json"
-OUTPUT_DIR      = PROJECT_ROOT / "scripts" / "output"
+HISTORY_CSV     = PROJECT_ROOT / "ml" / "data" / "history.csv"
+QUALITY_REPORT  = PROJECT_ROOT / "ml" / "data" / "quality_report.json"
+OUTPUT_DIR      = PROJECT_ROOT / "ml" / "analysis" / "output"
 PLOT_PATH       = OUTPUT_DIR / "sensor_coverage.png"
 
 LANDMARKS = {

@@ -1,4 +1,4 @@
-# data/weather.py — OpenWeatherMap current weather ingestion
+# data/ingestion/weather.py — OpenWeatherMap current weather ingestion
 # Fetches wind speed and direction for Dallas city center.
 # One API call covers the whole metro — wind is uniform enough at this scale.
 

@@ -12,7 +12,7 @@ per-sensor hours endpoint — OpenAQ v3's meta.found returns ">N" sentinel
 strings for hours queries, not exact integers, so it's not usable as a
 density proxy.
 
-Reuses the OpenAQ v3 client helpers in data/openaq.py.
+Reuses the OpenAQ v3 client helpers in data/ingestion/openaq.py.
 """
 
 from __future__ import annotations
@@ -25,18 +25,18 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.patches import Rectangle
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config import BBOX  # noqa: E402
-from data.openaq import (  # noqa: E402
+from data.ingestion.openaq import (  # noqa: E402
     _fetch_locations,
     _get_api_key,
     _get_pm25_sensor_id,
 )
 
-HISTORY_CSV    = PROJECT_ROOT / "data" / "history.csv"
-OUTPUT_DIR     = PROJECT_ROOT / "scripts" / "output"
+HISTORY_CSV    = PROJECT_ROOT / "ml" / "data" / "history.csv"
+OUTPUT_DIR     = PROJECT_ROOT / "ml" / "analysis" / "output"
 PLOT_PATH      = OUTPUT_DIR / "openaq_coverage.png"
 
 LANDMARKS = {
@@ -85,7 +85,7 @@ def extract_location_datetimes(loc: dict) -> tuple[datetime | None, datetime | N
 
 
 # ---------------------------------------------------------------------------
-# Coverage math (mirrors scripts/sensor_coverage_check.py)
+# Coverage math (mirrors ml/analysis/sensor_coverage_check.py)
 # ---------------------------------------------------------------------------
 
 def cell_for_point(lat: float, lon: float) -> tuple[int, int] | None:

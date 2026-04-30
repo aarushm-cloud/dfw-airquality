@@ -7,7 +7,7 @@ could improve on raw IDW for the dashboard. The conclusion was no:
       Raw IDW RMSE:            2.48 µg/m³  ← lowest
       IDW + adjust_grid RMSE:  4.57 µg/m³  (training-time proxy of the
                                             production heuristic — see
-                                            data/PHASE4_RESULT.md for the
+                                            ml/docs/PHASE4_RESULT.md for the
                                             caveat; this number is NOT a
                                             fair indictment of the
                                             production adjust_grid)
@@ -22,13 +22,13 @@ captures.
 
 The production dashboard uses raw IDW + heuristic adjust_grid from
 engine/interpolation.py; no model file is loaded at runtime. This script
-is preserved so the comparison is reproducible. See data/PHASE4_RESULT.md
+is preserved so the comparison is reproducible. See ml/docs/PHASE4_RESULT.md
 for the full write-up and forward-looking notes on what would need to
 change before another ML attempt is worth trying.
 
 Re-running this script: it never saves the model unless RF beats both
 baselines (a guard that gated the original failed run). To re-evaluate
-after data/feature changes, just `python scripts/train_phase4_residual_rf.py`.
+after data/feature changes, just `python ml/research/train_phase4_residual_rf.py`.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -54,9 +54,9 @@ from sklearn.model_selection import LeaveOneGroupOut
 from config import IDW_POWER, IDW_SEARCH_RADIUS_DEG, LON_CORRECTION, TRAFFIC_WEIGHT
 from engine.adjustments import traffic_factor_vec
 
-HISTORY_CSV = ROOT / "data" / "history.csv"
-MODELS_DIR = ROOT / "models"
-OUTPUT_DIR = ROOT / "scripts" / "output"
+HISTORY_CSV = ROOT / "ml" / "data" / "history.csv"
+MODELS_DIR = ROOT / "ml" / "models"
+OUTPUT_DIR = ROOT / "ml" / "analysis" / "output"
 
 FEATURES = [
     "lat",

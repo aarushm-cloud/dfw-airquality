@@ -1,14 +1,14 @@
-# data/history.py — Accumulate live dashboard snapshots
+# data/ingestion/history.py — Accumulate live dashboard snapshots
 #
 # Each call to save_snapshot() appends one row per sensor to
 # data/dashboard_snapshots.csv. These are live-pipeline snapshots taken while
 # the Streamlit app or scripts/collector.py is running.
 #
 # Phase 4 training data is NOT collected here. The canonical training set is
-# data/history.csv, built by data/collect_training_data.py from PurpleAir's
-# historical API (see CLAUDE.md). Live snapshots and the training set live in
-# separate files on purpose, so the training script can overwrite history.csv
-# without corrupting the dashboard's accumulated state.
+# ml/data/history.csv, built by ml/training/collect_training_data.py from
+# PurpleAir's historical API (see CLAUDE.md). Live snapshots and the training
+# set live in separate files on purpose, so the training script can overwrite
+# history.csv without corrupting the dashboard's accumulated state.
 
 import os
 import fcntl
@@ -19,10 +19,10 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# CSV lives next to this file in the data/ directory.
-# Training data (history.csv) is owned by data/collect_training_data.py;
+# CSV lives at the data/ directory root (one level up from this file).
+# Training data (history.csv) is owned by ml/training/collect_training_data.py;
 # this writer owns dashboard_snapshots.csv so the two never collide.
-HISTORY_PATH = os.path.join(os.path.dirname(__file__), "dashboard_snapshots.csv")
+HISTORY_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard_snapshots.csv")
 
 COLUMNS = [
     "timestamp",

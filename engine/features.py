@@ -1,11 +1,11 @@
 # engine/features.py — Feature engineering: compute per-sensor traffic and wind columns
 #
 # TODO (Phase 4 inference): the Random Forest also trains on
-# `dist_to_highway_m` from `data/spatial_features.compute_distance_to_highway`.
+# `dist_to_highway_m` from `data/spatial/spatial_features.compute_distance_to_highway`.
 # Grid cells passed into the model at inference time will need the same
 # lookup applied per cell. Add it here (or wherever the live feature pipeline
 # feeds the model) before turning on RF inference. Static feature, cached on
-# disk — same call as in `data/collect_training_data.py:collect_all_purpleair`.
+# disk — same call as in `ml/training/collect_training_data.py:collect_all_purpleair`.
 #
 # Allow running this file directly for the __main__ verification block:
 #   python engine/features.py
@@ -24,8 +24,9 @@ if __name__ == "__main__":
 # Instead, this function computes traffic and wind values PER SENSOR and stores them
 # as separate columns. These columns are used for:
 #   1. Live dashboard snapshots — stored in data/dashboard_snapshots.csv via
-#      data/history.py:save_snapshot. (NOT the Phase 4 training set; that is built
-#      separately by data/collect_training_data.py from historical PurpleAir data.)
+#      data/ingestion/history.py:save_snapshot. (NOT the Phase 4 training set; that
+#      is built separately by ml/training/collect_training_data.py from historical
+#      PurpleAir data.)
 #   2. The same adjustment logic is applied POST-IDW to grid cells in interpolation.py,
 #      where IDW alone has no knowledge of roads or wind.
 #
@@ -76,7 +77,7 @@ def build_features(
     """
     df = sensor_df.copy()
 
-    # pm25_raw comes in from data/purpleair.py (uncorrected PurpleAir reading).
+    # pm25_raw comes in from data/ingestion/purpleair.py (uncorrected PurpleAir reading).
     # OpenAQ rows have no such column; after concat they carry NaN, which is
     # the right signal — OpenAQ is reference-grade and has no separate "raw"
     # reading to preserve. Do NOT overwrite the column here; that would destroy

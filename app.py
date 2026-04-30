@@ -3,11 +3,11 @@
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
-from data.purpleair import fetch_sensors
-from data.openaq import fetch_openaq
-from data.weather import fetch_wind
-from data.traffic import fetch_traffic
-from data.history import save_snapshot, get_history_stats
+from data.ingestion.purpleair import fetch_sensors
+from data.ingestion.openaq import fetch_openaq
+from data.ingestion.weather import fetch_wind
+from data.ingestion.traffic import fetch_traffic
+from data.ingestion.history import save_snapshot, get_history_stats
 from engine.features import build_features
 from engine.interpolation import run_idw, adjust_grid
 from viz.heatmap import build_sensor_map

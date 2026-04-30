@@ -1,4 +1,4 @@
-# data/traffic.py — TomTom Traffic Flow ingestion
+# data/ingestion/traffic.py — TomTom Traffic Flow ingestion
 #
 # Samples congestion at a grid of points across the Dallas bbox.
 # TomTom's Flow API returns current vs. free-flow speed for a road segment

@@ -2,7 +2,7 @@
 review_180day_run.py
 
 One-off go/no-go review of the 180-day Phase 4 training-data run.
-Reads data/quality_report.json + data/history.csv, runs the checks
+Reads ml/data/quality_report.json + ml/data/history.csv, runs the checks
 defined in PHASE4_HANDOFF.md, prints PASS / WARN / FAIL per check,
 and ends with a single recommendation block.
 """
@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+sys.path.insert(0, str(PROJECT_ROOT / "ml" / "analysis"))
 
 from sensor_coverage_check import (  # noqa: E402
     GRID_N,
@@ -25,8 +25,8 @@ from sensor_coverage_check import (  # noqa: E402
     grid_cell_counts,
 )
 
-HISTORY_CSV    = PROJECT_ROOT / "data" / "history.csv"
-QUALITY_REPORT = PROJECT_ROOT / "data" / "quality_report.json"
+HISTORY_CSV    = PROJECT_ROOT / "ml" / "data" / "history.csv"
+QUALITY_REPORT = PROJECT_ROOT / "ml" / "data" / "quality_report.json"
 
 SEVENDAY_DROPPED = [12969, 53365, 90785, 123409, 128645, 280474, 280940]
 
