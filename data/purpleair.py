@@ -117,7 +117,7 @@ def fetch_sensors() -> pd.DataFrame:
     field_names = data.get("fields", [])
     rows = data.get("data", [])
 
-    empty_cols = ["sensor_id", "name", "lat", "lon", "pm25", "pm25_raw", "epa_corrected", "source"]
+    empty_cols = ["sensor_id", "name", "lat", "lon", "pm25", "pm25_raw", "epa_corrected", "humidity", "source"]
     if not rows:
         return pd.DataFrame(columns=empty_cols)
 
@@ -142,8 +142,14 @@ def fetch_sensors() -> pd.DataFrame:
     # the original for audit.
     df = apply_epa_correction(df)
 
-    # Keep only the columns we need and tag the source
-    df = df[["sensor_id", "name", "lat", "lon", "pm25", "pm25_raw", "epa_corrected"]].copy()
+    # Keep only the columns we need and tag the source. humidity is preserved
+    # as a model input for Phase 4 RF inference.
+    keep = ["sensor_id", "name", "lat", "lon", "pm25", "pm25_raw", "epa_corrected"]
+    if "humidity" in df.columns:
+        keep.append("humidity")
+    df = df[keep].copy()
+    if "humidity" not in df.columns:
+        df["humidity"] = float("nan")
     df["source"] = "purpleair"
 
     return df

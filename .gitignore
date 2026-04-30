@@ -9,3 +9,4 @@ requests_cache.sqlite
 CLAUDE.md
 project_context.txt
 data/history.csv
+models/*.pkl
