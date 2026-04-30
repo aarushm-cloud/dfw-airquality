@@ -123,7 +123,7 @@ All free tier. No credit card required.
 ## Setup
 
 ```bash
-git clone https://github.com/yourusername/dfw-airquality.git
+git clone https://github.com/aarushm-cloud/dfw-airquality.git
 cd dfw-airquality
 
 python -m venv venv
