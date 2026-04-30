@@ -14,7 +14,7 @@ from config import (
 )
 
 # Wind dispersal cap and curve parameters
-WIND_WEIGHT    = 10.0   # strong wind can subtract up to 10 µg/m³ (dispersal effect)
+WIND_WEIGHT    = 3.0   # strong wind can subtract up to 10 µg/m³ (dispersal effect)
 WIND_SPEED_CAP = 15.0   # m/s — wind faster than this is treated as max dispersal
 
 # Traffic exponential curve parameters
