@@ -29,6 +29,11 @@ def apply_epa_correction(df: pd.DataFrame) -> pd.DataFrame:
 
         PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71
 
+    Input MUST be the CF=1 channel (pm2.5_cf_1 / pm2.5_cf_1_10minute).
+    This formula (Barkjohn et al. 2021) was derived from co-location studies
+    using CF=1 readings. Feeding it ATM-channel data overcorrects at moderate
+    concentrations and diverges significantly at PM2.5 > 50 µg/m³.
+
     TODO: this is duplicated in ml/training/collect_training_data.py:apply_epa_correction
     (the training script can't import from this module without booting up the
     live PurpleAir endpoint). Both must be edited in lockstep. Follow-up:
@@ -87,7 +92,7 @@ def fetch_sensors() -> pd.DataFrame:
         "name",
         "latitude",
         "longitude",
-        "pm2.5_10minute",
+        "pm2.5_cf_1",   # CF=1 channel, instantaneous — required input for Barkjohn 2021 EPA correction (10-min avg only exists on ATM channel)
         "humidity",
         "location_type",
     ]
@@ -128,7 +133,7 @@ def fetch_sensors() -> pd.DataFrame:
         "sensor_index":     "sensor_id",
         "latitude":         "lat",
         "longitude":        "lon",
-        "pm2.5_10minute":   "pm25",
+        "pm2.5_cf_1":       "pm25",
     })
 
     # Drop rows where PM2.5 reading is missing or negative.

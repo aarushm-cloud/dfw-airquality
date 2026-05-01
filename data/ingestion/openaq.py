@@ -2,6 +2,7 @@
 
 import logging
 import os
+from datetime import datetime, timezone
 
 import pandas as pd
 import requests
@@ -16,6 +17,15 @@ logger = logging.getLogger(__name__)
 OPENAQ_BASE_URL = "https://api.openaq.org/v3"
 # parameters_id=2 is PM2.5 in OpenAQ's taxonomy
 PM25_PARAMETER_ID = 2
+
+# OpenAQ /latest returns the most recent value with no age guarantee.
+# Federal FRM monitors (e.g. BAM 1022, GRIMM) report hourly continuous data,
+# typically available within 30–60 minutes of the measurement hour.
+# Some monitors report 24-hour averages; their "latest" reading can be many
+# hours old relative to PurpleAir's 10-minute updates, making them unsuitable
+# for contemporaneous fusion. 90 minutes keeps hourly continuous monitors
+# while reliably excluding 24-hour average reporters.
+MAX_OPENAQ_AGE_MINUTES = 90
 
 
 def _get_api_key() -> str:
@@ -41,7 +51,6 @@ def _fetch_locations(api_key: str) -> list[dict]:
     resp.raise_for_status()
     return resp.json().get("results", [])
 
-
 def _get_pm25_sensor_id(loc: dict) -> int | None:
     """Return the sensor ID for PM2.5 from a /locations result, or None."""
     for sensor in loc.get("sensors", []):
@@ -54,6 +63,8 @@ def _fetch_latest_pm25(location_id: int, pm25_sensor_id: int, api_key: str) -> f
     """
     Fetch the latest PM2.5 value for a location from /locations/{id}/latest.
     The endpoint returns a flat list of readings keyed by sensorsId.
+    Returns None if no valid reading exists or if the reading is older than
+    MAX_OPENAQ_AGE_MINUTES.
     """
     resp = requests.get(
         f"{OPENAQ_BASE_URL}/locations/{location_id}/latest",
@@ -64,8 +75,27 @@ def _fetch_latest_pm25(location_id: int, pm25_sensor_id: int, api_key: str) -> f
     for reading in resp.json().get("results", []):
         if reading.get("sensorsId") == pm25_sensor_id:
             value = reading.get("value")
-            if value is not None:
-                return float(value)
+            timestamp = reading.get("datetime")
+            if value is None or timestamp is None:
+                continue
+            # OpenAQ v3 returns datetime as either a flat ISO 8601 string OR
+            # a nested object {"utc": "...", "local": "..."}. Normalise both
+            # shapes to a UTC ISO string before parsing. Python 3.10's
+            # fromisoformat does not accept a trailing 'Z', so swap it for
+            # an explicit "+00:00" offset.
+            if isinstance(timestamp, dict):
+                timestamp = timestamp.get("utc")
+                if timestamp is None:
+                    continue
+            reading_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            age_minutes = (datetime.now(timezone.utc) - reading_dt).total_seconds() / 60
+            if age_minutes > MAX_OPENAQ_AGE_MINUTES:
+                logger.debug(
+                    "OpenAQ sensor %s skipped — reading is %.0f min old (max %d)",
+                    location_id, age_minutes, MAX_OPENAQ_AGE_MINUTES,
+                )
+                return None
+            return float(value)
     return None
 
 

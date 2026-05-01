@@ -293,7 +293,7 @@ def fetch_sensor_history(
                 "start_timestamp": int(chunk_start.timestamp()),
                 "end_timestamp": int(chunk_end.timestamp()),
                 "average": 60,
-                "fields": "pm2.5_atm_a,pm2.5_atm_b,humidity",
+                "fields": "pm2.5_cf_1_a,pm2.5_cf_1_b,humidity",  # CF=1 required by Barkjohn 2021 EPA formula
             },
             headers=headers,
         )
@@ -325,8 +325,8 @@ def fetch_sensor_history(
             rows_collected.append({
                 "timestamp": pd.to_datetime(row[col["time_stamp"]], unit="s", utc=True),
                 "sensor_index": sensor_index,
-                "pm25_a": row[col["pm2.5_atm_a"]] if "pm2.5_atm_a" in col else None,
-                "pm25_b": row[col["pm2.5_atm_b"]] if "pm2.5_atm_b" in col else None,
+                "pm25_a": row[col["pm2.5_cf_1_a"]] if "pm2.5_cf_1_a" in col else None,
+                "pm25_b": row[col["pm2.5_cf_1_b"]] if "pm2.5_cf_1_b" in col else None,
                 "humidity": row[col["humidity"]] if "humidity" in col else None,
             })
  

@@ -74,3 +74,9 @@ TRAFFIC_WEIGHT = 8.0
 # Distance (meters) at which the traffic adjustment fades to zero.
 # At 0 m: full effect. At 250 m: half effect. At 500 m+: zero effect.
 TRAFFIC_DECAY_RADIUS_M = 500
+
+# Below this IDW-weighted distance-to-highway, the post-IDW traffic adjustment
+# is scaled down: sensors near a highway already read its elevated PM2.5, and
+# IDW propagates that signal to surrounding cells. Without this taper, those
+# cells would also receive the post-IDW traffic bump and double-count the road.
+SENSOR_HW_PROXIMITY_M = 300

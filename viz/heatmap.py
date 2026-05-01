@@ -10,6 +10,7 @@ import pandas as pd
 import pgeocode
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
+from PIL import Image
 from scipy.ndimage import gaussian_filter
 from uszipcode import SearchEngine
 from config import MAP_CENTER, MAP_ZOOM, AQI_COLORS
@@ -115,11 +116,21 @@ _PM25_CMAP = _build_pm25_colormap()
 _PM25_NORM = mcolors.Normalize(vmin=0, vmax=PM25_COLORSCALE[-1][0])
 
 
+def _classify_coverage(confidence: float) -> str:
+    """Map a 0–1 confidence score to the user-facing coverage label."""
+    if confidence >= 0.7:
+        return "Coverage: Good (sensor nearby)"
+    if confidence >= 0.4:
+        return "Coverage: Moderate (interpolated)"
+    return "Coverage: Limited (estimated — few sensors nearby)"
+
+
 def _add_idw_overlay(
     m: folium.Map,
     lats: np.ndarray,
     lons: np.ndarray,
     values: np.ndarray,
+    confidence: np.ndarray,
 ) -> None:
     """
     Render the PM2.5 grid as a smooth raster ImageOverlay instead of
@@ -134,6 +145,9 @@ def _add_idw_overlay(
       4. Flip rows to north-up orientation (Folium's ImageOverlay expects
          the top row of the PNG to correspond to the northern bound).
       5. Encode to PNG in memory and embed as a base64 data URL.
+
+    The confidence array is used only to enrich the popup text; the gray
+    coverage veil is rendered separately by _add_confidence_overlay().
     """
     # Step 1: smooth PM2.5 values before colour mapping
     smoothed = gaussian_filter(values.astype(float), sigma=1.5)
@@ -158,12 +172,12 @@ def _add_idw_overlay(
         [float(lats.max()), float(lons.max())],  # north-east
     ]
 
-    heatmap_group = folium.FeatureGroup(name="PM2.5 Heatmap", show=True)
+    heatmap_group = folium.FeatureGroup(name="Air Quality (PM2.5)", show=True)
     folium.raster_layers.ImageOverlay(
         image=f"data:image/png;base64,{encoded}",
         bounds=bounds,
         opacity=1.0,   # opacity is already baked into the RGBA alpha channel
-        name="PM2.5 Heatmap",
+        name="Air Quality (PM2.5)",
     ).add_to(heatmap_group)
 
     # Sparse transparent rectangle grid for click popups.
@@ -184,6 +198,7 @@ def _add_idw_overlay(
             pm25_val = float(values[i, j])   # unsmoothed value for accuracy
             lat      = float(lats[i, j])
             lon      = float(lons[i, j])
+            coverage = _classify_coverage(float(confidence[i, j]))
 
             category = classify_pm25(pm25_val)
             zip_code = _coords_to_zip(lat, lon)
@@ -191,7 +206,8 @@ def _add_idw_overlay(
             popup_text = (
                 f"<b>{location_label}</b><br>"
                 f"PM2.5: {pm25_val:.1f} µg/m³<br>"
-                f"Category: {category.replace('_', ' ').title()}"
+                f"Category: {category.replace('_', ' ').title()}<br>"
+                f"{coverage}"
             )
 
             folium.Rectangle(
@@ -203,11 +219,55 @@ def _add_idw_overlay(
                 fill=True,
                 fill_color="white",
                 fill_opacity=0.0,   # invisible — click target only
-                popup=folium.Popup(popup_text, max_width=180),
+                popup=folium.Popup(popup_text, max_width=200),
                 tooltip=f"{pm25_val:.1f} µg/m³",
             ).add_to(heatmap_group)
 
     heatmap_group.add_to(m)
+
+
+def _add_confidence_overlay(
+    m: folium.Map,
+    lats: np.ndarray,
+    lons: np.ndarray,
+    confidence: np.ndarray,
+) -> None:
+    """
+    Render a gray fog over grid cells with weak sensor coverage.
+
+    Alpha encodes (1 - confidence): cells with a sensor on top are fully
+    transparent, cells beyond the IDW search radius show a noticeable gray
+    veil. Rendered on top of the PM2.5 overlay so it dims uncertain regions
+    without changing their hue.
+    """
+    h, w = confidence.shape
+    overlay = np.zeros((h, w, 4), dtype=np.uint8)
+    overlay[:, :, 0] = 80   # R
+    overlay[:, :, 1] = 80   # G
+    overlay[:, :, 2] = 80   # B
+    overlay[:, :, 3] = ((1.0 - confidence) * 115).astype(np.uint8)
+
+    # Flip vertically: PNG row 0 is the northernmost latitude in Folium.
+    overlay = np.flipud(overlay)
+
+    img = Image.fromarray(overlay, mode="RGBA")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    encoded = base64.b64encode(buf.getvalue()).decode()
+
+    bounds = [
+        [float(lats.min()), float(lons.min())],
+        [float(lats.max()), float(lons.max())],
+    ]
+
+    confidence_group = folium.FeatureGroup(name="Sensor Coverage", show=True)
+    folium.raster_layers.ImageOverlay(
+        image=f"data:image/png;base64,{encoded}",
+        bounds=bounds,
+        opacity=1.0,
+        name="Sensor Coverage",
+    ).add_to(confidence_group)
+    confidence_group.add_to(m)
 
 
 def build_sensor_map(
@@ -215,12 +275,14 @@ def build_sensor_map(
     lats: np.ndarray,
     lons: np.ndarray,
     grid_values: np.ndarray,
+    confidence_grid: np.ndarray,
 ) -> folium.Map:
     """
     Build a Folium map with:
       - IDW heatmap overlay (Phase 2), using the pre-computed adjusted grid
+      - Sensor coverage confidence overlay (gray veil over weak-coverage cells)
       - Colored circle marker for each sensor (Phase 1)
-      - AQI legend
+      - AQI legend + overlay legend
 
     The caller (app.py) is responsible for running run_idw() and adjust_grid()
     before calling this function and passing in the resulting arrays.
@@ -231,8 +293,10 @@ def build_sensor_map(
         tiles="CartoDB positron",
     )
 
-    # --- Phase 2: heatmap overlay (drawn first so dots render on top) ---
-    _add_idw_overlay(m, lats, lons, grid_values)
+    # PM2.5 overlay first, then the confidence veil on top so it can dim
+    # cells with weak coverage without changing their hue.
+    _add_idw_overlay(m, lats, lons, grid_values, confidence_grid)
+    _add_confidence_overlay(m, lats, lons, confidence_grid)
 
     # --- Phase 1: sensor dot markers ---
     sensor_group = folium.FeatureGroup(name="Sensor Readings", show=True)
@@ -278,10 +342,12 @@ def build_sensor_map(
 
     sensor_group.add_to(m)
 
-    # Layer control (lets user toggle heatmap and dots on/off)
-    folium.LayerControl(position="topright").add_to(m)
+    # Layer control — toggles for the PM2.5 overlay, the coverage veil, and
+    # the sensor dots. All three are on by default; users can hide the veil
+    # if they find it visually distracting.
+    folium.LayerControl(position="topright", collapsed=False).add_to(m)
 
-    # --- Legend ---
+    # --- AQI category legend (bottom-right) ---
     legend_html = """
     <div style="
         position: fixed; bottom: 30px; right: 30px; z-index: 1000;
@@ -298,5 +364,40 @@ def build_sensor_map(
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
+
+    # --- Overlay legend (bottom-left) ---
+    # Explains the two raster layers in plain language. The gray hatched swatch
+    # mirrors the confidence overlay's color (#505050 at ~45% opacity) so users
+    # can connect the legend entry to what they see on the map.
+    overlay_legend_html = """
+    <div style="
+        position: fixed; bottom: 30px; left: 30px; z-index: 1000;
+        background: white; padding: 8px 12px; border-radius: 6px;
+        border: 1px solid #ccc; font-size: 12px; line-height: 1.5;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #333;
+    ">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="
+                display: inline-block; width: 22px; height: 12px;
+                background: linear-gradient(to right, #00e400, #ffff00, #ff7e00, #ff0000, #8f3f97);
+                border-radius: 2px; border: 1px solid #bbb;
+            "></span>
+            PM2.5 estimate (AQI scale)
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+            <span style="
+                display: inline-block; width: 22px; height: 12px;
+                background-color: rgba(80, 80, 80, 0.45);
+                background-image: repeating-linear-gradient(
+                    45deg, transparent, transparent 3px,
+                    rgba(0,0,0,0.25) 3px, rgba(0,0,0,0.25) 4px);
+                border-radius: 2px; border: 1px solid #bbb;
+            "></span>
+            Limited sensor coverage
+        </div>
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(overlay_legend_html))
 
     return m

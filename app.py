@@ -117,13 +117,14 @@ col3.metric("Wind Speed",           f"{wind['wind_speed']:.1f} m/s")
 col4.metric("Wind Direction",       f"{wind['wind_deg']:.0f}°")
 
 # --- Build map (IDW + post-IDW traffic/wind adjustments) ---
-lats_2d, lons_2d, idw_estimate = run_idw(df, grid_resolution=60)
+lats_2d, lons_2d, idw_estimate, idw_hw_dist, confidence_grid = run_idw(df, grid_resolution=60)
 grid = adjust_grid(
     idw_estimate,
     lats_2d,
     lons_2d,
     traffic_df if traffic_df is not None else pd.DataFrame(),
     wind,
+    idw_hw_dist=idw_hw_dist,
 )
-folium_map = build_sensor_map(df, lats_2d, lons_2d, grid)
+folium_map = build_sensor_map(df, lats_2d, lons_2d, grid, confidence_grid)
 st_folium(folium_map, width="100%", height=600, returned_objects=[])

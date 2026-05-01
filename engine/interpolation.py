@@ -14,7 +14,17 @@
 import numpy as np
 import pandas as pd
 
-from config import BBOX, LON_CORRECTION, IDW_POWER, IDW_SEARCH_RADIUS_DEG, TRAFFIC_WEIGHT, TRAFFIC_DECAY_RADIUS_M, GRID_RESOLUTION
+from config import (
+    BBOX,
+    LON_CORRECTION,
+    IDW_POWER,
+    IDW_SEARCH_RADIUS_DEG,
+    TRAFFIC_WEIGHT,
+    TRAFFIC_DECAY_RADIUS_M,
+    GRID_RESOLUTION,
+    SENSOR_HW_PROXIMITY_M,
+)
+from data.spatial.spatial_features import compute_distance_to_highway
 from engine.adjustments import (
     WIND_WEIGHT,
     WIND_SPEED_CAP,
@@ -29,9 +39,17 @@ from engine.adjustments import (
 def run_idw(
     df: pd.DataFrame,
     grid_resolution: int = GRID_RESOLUTION,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Returns three 2D arrays of the same shape: (lats_2d, lons_2d, interpolated_pm25).
+    Returns five 2D arrays of the same shape:
+      (lats_2d, lons_2d, interpolated_pm25, idw_hw_dist, confidence).
+    `idw_hw_dist` is the IDW-weighted distance-to-nearest-highway across each
+    cell's contributing sensors (metres); used by adjust_grid() to taper the
+    traffic adjustment for cells whose dominant sensors already sit on a road.
+    `confidence` is a 0.0–1.0 score per cell indicating how reliable the IDW
+    estimate is: 1.0 means a sensor sits essentially on the cell, 0.0 means
+    the cell is at (or beyond) IDW_SEARCH_RADIUS_DEG from any sensor and is
+    relying on the global-mean fallback.
     grid_resolution controls grid density (200 = 200x200 points over Dallas).
 
     Changes vs Phase 3:
@@ -83,10 +101,37 @@ def run_idw(
     global_mean    = float(np.mean(sensor_pm25))
     has_neighbours = weight_total > 0                 # shape: (res, res)
 
+    weight_total_safe = np.where(has_neighbours, weight_total, 1.0)
     weighted_sum  = np.sum(weights * sensor_pm25[np.newaxis, np.newaxis, :], axis=2)
-    idw_estimate  = np.where(has_neighbours, weighted_sum / np.where(has_neighbours, weight_total, 1.0), global_mean)
+    idw_estimate  = np.where(has_neighbours, weighted_sum / weight_total_safe, global_mean)
 
-    return lats_2d, lons_2d, idw_estimate
+    # IDW-weighted distance-to-highway per cell, using the same weights as pm25.
+    # Cells with no in-radius sensor fall back to 9999 m (treat as far from any
+    # road) so adjust_grid()'s scaling defaults to no taper for those cells.
+    sensor_hw_dists = np.array([
+        compute_distance_to_highway(lat, lon)
+        for lat, lon in zip(sensor_lats, sensor_lons)
+    ])
+    weighted_hw_sum = np.sum(weights * sensor_hw_dists[np.newaxis, np.newaxis, :], axis=2)
+    idw_hw_dist = np.where(
+        has_neighbours,
+        weighted_hw_sum / weight_total_safe,
+        9999.0,
+    )
+
+    # Confidence grid: distance to the closest sensor, normalised against the
+    # IDW search radius. Cells with a sensor essentially on top of them score
+    # ~1.0; cells right at the edge of the search radius score ~0.0; fallback
+    # cells (no sensor in radius) are pinned to 0.0 — these are weakest of all.
+    nearest_dist_deg = distances.min(axis=2)                          # (res, res)
+    nearest_sensor_dist_km = nearest_dist_deg * 111.0
+    confidence = np.clip(
+        1.0 - (nearest_sensor_dist_km / (IDW_SEARCH_RADIUS_DEG * 111.0)),
+        0.0, 1.0,
+    )
+    confidence = np.where(has_neighbours, confidence, 0.0)
+
+    return lats_2d, lons_2d, idw_estimate, idw_hw_dist, confidence
 
 
 def adjust_grid(
@@ -95,6 +140,7 @@ def adjust_grid(
     lons_2d: np.ndarray,
     traffic_df: pd.DataFrame,
     wind: dict,
+    idw_hw_dist: np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Apply traffic and wind adjustments to an interpolated grid post-IDW.
@@ -116,6 +162,12 @@ def adjust_grid(
         lons_2d     : (res, res) array of grid point longitudes
         traffic_df  : DataFrame with [lat, lon, congestion], or None / empty
         wind        : dict with wind_speed (m/s) and wind_deg (degrees from OWM)
+        idw_hw_dist : optional (res, res) array of IDW-weighted sensor
+                      distance-to-highway (m). When provided, the traffic
+                      adjustment is scaled by clip(idw_hw_dist /
+                      SENSOR_HW_PROXIMITY_M, 0, 1) so that cells whose
+                      dominant sensors already sit on a highway don't get
+                      a second traffic bump on top of the IDW reading.
 
     Returns:
         Adjusted grid_values array of the same shape, clamped to >= 0.0.
@@ -172,6 +224,16 @@ def adjust_grid(
     decay  = np.clip(1.0 - dist_m / TRAFFIC_DECAY_RADIUS_M, 0.0, 1.0)  # (N,)
 
     traffic_adj = tf * decay * TRAFFIC_WEIGHT                        # (N,) µg/m³
+
+    # Highway-proximity taper: cells whose IDW-contributing sensors are very
+    # close to a highway already carry that road's PM2.5 signal through IDW.
+    # Scale traffic_adj from 1.0 (full bump) at SENSOR_HW_PROXIMITY_M down to
+    # 0.0 at the highway centreline.
+    if idw_hw_dist is not None:
+        hw_scale = np.clip(
+            idw_hw_dist.ravel() / SENSOR_HW_PROXIMITY_M, 0.0, 1.0
+        )
+        traffic_adj = traffic_adj * hw_scale
 
     # --- Wind adjustment ---
     if wind_speed == 0.0 or wind_deg is None:

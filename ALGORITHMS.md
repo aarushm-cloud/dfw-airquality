@@ -78,6 +78,8 @@ The Earth is curved, but for a metro-scale area we treat it as flat. At Dallas's
 PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71
 ```
 
+**Input: `pm2.5_cf_1` channel (not ATM).** The Barkjohn 2021 formula was derived from CF=1 co-location data. Using ATM as input overcorrects at moderate concentrations and diverges significantly at PM2.5 > 50 µg/m³.
+
 PurpleAir uses a low-cost laser particle counter that systematically overestimates PM2.5, especially when humidity is high (water droplets scatter the laser and get counted as particles). The EPA's regression formula, derived from years of co-location with reference-grade monitors, is the standard correction in U.S. regulatory and public-health contexts.
 
 The cleaning pipeline:
@@ -403,6 +405,10 @@ A sensor sitting next to the freeway already feels the freeway. Its raw PM2.5 re
 `engine/features.py:build_features()` does still compute the same traffic and wind columns *per sensor* — `traffic_factor`, `wind_term`, `nearest_congestion`, `distance_to_road_m`, `direction_factor`, `dispersal` — but only as metadata. They're written into [data/dashboard_snapshots.csv](data/dashboard_snapshots.csv) for the live snapshot history and as candidate features for downstream ML, but `pm25` itself is left untouched. The header comment block in [engine/features.py:20-41](engine/features.py#L20-L41) spells this out explicitly.
 
 Grid cells are different. IDW gives every interpolated point a weighted average of nearby sensor readings, but it has no idea whether that point sits on a freeway, a backyard, or a stretch of empty parkland. `adjust_grid()` injects the missing road and wind context. That's why the same math lives in two places — once as scalar helpers in `engine/adjustments.py` for the per-sensor metadata and once as fully vectorised counterparts for the post-IDW grid pass.
+
+### Highway-proximity taper
+
+There is one edge case where the post-IDW traffic bump still risks double-counting: when a sensor itself sits on or next to a highway. Sensors within `SENSOR_HW_PROXIMITY_M` of a highway already read elevated PM2.5 from that road. Their IDW-propagated readings carry the highway signal into surrounding cells. To prevent a second traffic bump on those same cells, the traffic adjustment is scaled by `clip(idw_hw_dist / 300, 0, 1)`, where `idw_hw_dist` is the IDW-weighted distance-to-nearest-highway across each cell's contributing sensors. The result tapers linearly to zero for cells whose dominant sensors are essentially on the highway, leaves the adjustment unchanged once those sensors are 300+ m off the road, and falls in between for partial proximity. This affects ~18–20 grid cells in the current sensor network — sensor 305450 sits 7 m from a highway and sensor 283882 sits 133 m from a highway, and IDW carries their readings into roughly 9–10 surrounding cells each.
 
 ---
 
