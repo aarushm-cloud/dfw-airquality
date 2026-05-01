@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>DFW Air Quality — 3D Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Architectural greys */
+    --g-00:#0d0e0e;     /* deep void */
+    --g-05:#141616;
+    --g-10:#1a1c1c;     /* panel */
+    --g-15:#212323;
+    --g-20:#2a2c2c;     /* card */
+    --g-25:#343636;
+    --g-30:#3a3d3d;
+    --g-40:#535656;
+    --g-50:#6e7171;
+    --g-60:#8a8d8d;
+    --g-70:#a8abab;
+    --g-80:#c4c6c6;
+    --g-90:#dcdede;
+    --g-95:#ebecec;
+    --g-98:#f3f4f4;
+
+    /* The single sanctioned green */
+    --green:        oklch(0.78 0.14 148);
+    --green-strong: oklch(0.72 0.16 148);
+    --green-soft:   oklch(0.78 0.14 148 / 0.18);
+    --green-line:   oklch(0.78 0.14 148 / 0.55);
+
+    --hairline: rgba(255,255,255,0.06);
+    --hairline-strong: rgba(255,255,255,0.10);
+
+    --shadow-soft: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.4);
+
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Inter Tight", "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--g-05);color:var(--g-90);font-family:var(--sans);font-size:14px;letter-spacing:-0.005em;font-weight:400;-webkit-font-smoothing:antialiased;overflow:hidden}
+
+  /* ===== App shell ===== */
+  #app{position:fixed;inset:0;display:grid;grid-template-rows:48px 1fr 28px}
+
+  /* Top chrome */
+  .topbar{
+    display:flex;align-items:center;gap:18px;padding:0 18px;
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0));
+    border-bottom:1px solid var(--hairline);
+    z-index:5;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:13px;letter-spacing:0.01em}
+  .brand .glyph{
+    width:18px;height:18px;border-radius:3px;
+    background:
+      conic-gradient(from 45deg at 50% 50%, var(--g-40) 0 25%, var(--g-25) 0 50%, var(--g-40) 0 75%, var(--g-25) 0);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,0.08);
+  }
+  .brand .sep{color:var(--g-50);font-weight:300;margin:0 2px}
+  .brand .sub{color:var(--g-60);font-weight:400;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:0.08em}
+
+  .topnav{display:flex;align-items:center;gap:2px;margin-left:14px}
+  .topnav button{
+    background:transparent;border:0;color:var(--g-70);font:inherit;font-size:12px;
+    padding:6px 10px;border-radius:6px;cursor:pointer;letter-spacing:0.01em
+  }
+  .topnav button[aria-current="true"]{color:var(--g-95);background:rgba(255,255,255,0.05)}
+  .topnav button:hover{color:var(--g-95)}
+
+  .top-right{margin-left:auto;display:flex;align-items:center;gap:14px;color:var(--g-60);font-family:var(--mono);font-size:11px}
+  .live{display:inline-flex;align-items:center;gap:6px;color:var(--g-80)}
+  .live .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green-line);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+  .top-right .meta{color:var(--g-50)}
+  .top-right .meta b{color:var(--g-80);font-weight:500}
+
+  /* Main viewport */
+  .stage{position:relative;background:#0a0b0b;overflow:hidden}
+  canvas.three-canvas{display:block;width:100%;height:100%;cursor:grab}
+  canvas.three-canvas.is-dragging{cursor:grabbing}
+  canvas.three-canvas.fp{cursor:crosshair}
+
+  /* Footer */
+  .footer{
+    display:flex;align-items:center;gap:14px;padding:0 18px;
+    border-top:1px solid var(--hairline);
+    color:var(--g-50);font-family:var(--mono);font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;
+    background:var(--g-05)
+  }
+  .footer .spacer{flex:1}
+  .footer .crumbs span{color:var(--g-70)}
+  .footer .crumbs i{color:var(--g-40);font-style:normal;margin:0 8px}
+
+  /* ===== Persistent Left Panel ===== */
+  .left-panel{
+    position:absolute;top:18px;left:18px;
+    width:60px;
+    background:rgba(20,22,22,0.86);
+    backdrop-filter: blur(14px) saturate(120%);
+    -webkit-backdrop-filter: blur(14px) saturate(120%);
+    border:1px solid var(--hairline-strong);
+    border-radius:10px;
+    box-shadow:var(--shadow-soft);
+    overflow:hidden;
+    transition: width .35s cubic-bezier(.2,.7,.1,1);
+    z-index:10;
+  }
+  .left-panel.expanded{width:340px}
+
+  .lp-head{
+    display:flex;align-items:center;gap:10px;
+    padding:12px 14px;
+    border-bottom:1px solid var(--hairline);
+    cursor:pointer;
+    user-select:none;
+  }
+  .lp-cat-dot{
+    width:12px;height:12px;border-radius:50%;flex:0 0 auto;
+    box-shadow:0 0 10px currentColor, inset 0 0 0 1px rgba(255,255,255,0.15);
+  }
+  .lp-cat-text{flex:1;min-width:0;overflow:hidden;white-space:nowrap}
+  .lp-cat-text .lbl{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.1em;color:var(--g-50);display:block}
+  .lp-cat-text .val{font-size:14px;font-weight:500;color:var(--g-95);display:block;line-height:1.2}
+  .lp-toggle{
+    width:22px;height:22px;border-radius:5px;border:1px solid var(--hairline-strong);
+    display:grid;place-items:center;color:var(--g-70);background:transparent;cursor:pointer;flex:0 0 auto;
+    transition:transform .35s cubic-bezier(.2,.7,.1,1);
+  }
+  .left-panel.expanded .lp-toggle{transform:rotate(180deg)}
+  .lp-toggle svg{width:12px;height:12px}
+
+  .lp-body{
+    max-height:0;
+    overflow:hidden;
+    transition: max-height .4s cubic-bezier(.2,.7,.1,1);
+  }
+  .left-panel.expanded .lp-body{max-height:80vh;overflow-y:auto}
+  .lp-section{padding:14px 16px;border-bottom:1px solid var(--hairline)}
+  .lp-section:last-child{border-bottom:0}
+  .lp-section h4{
+    font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.12em;
+    color:var(--g-50);font-weight:500;margin-bottom:10px
+  }
+  .lp-readout{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+  .lp-readout .num{font-family:var(--mono);font-size:32px;font-weight:500;color:var(--g-95);letter-spacing:-0.02em}
+  .lp-readout .unit{font-family:var(--mono);font-size:11px;color:var(--g-60)}
+  .lp-readout .delta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--g-70)}
+  .lp-meta{font-size:12px;color:var(--g-70);line-height:1.5}
+  .lp-meta b{color:var(--g-90);font-weight:500}
+
+  .lp-rec{display:flex;gap:10px;padding:8px 0;font-size:12.5px;line-height:1.5;color:var(--g-80)}
+  .lp-rec .glyph{
+    flex:0 0 auto;width:14px;height:14px;border-radius:3px;margin-top:2px;
+    background:var(--g-30);
+    position:relative;
+  }
+  .lp-rec.warn .glyph{background:var(--g-40)}
+  .lp-rec.ok .glyph{background:var(--green-soft);box-shadow:inset 0 0 0 1px var(--green-line)}
+  .lp-rec b{color:var(--g-95);font-weight:500}
+
+  .lp-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .lp-pill{
+    padding:10px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid var(--hairline)
+  }
+  .lp-pill .k{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.1em;color:var(--g-50);display:block;margin-bottom:4px}
+  .lp-pill .v{font-family:var(--mono);font-size:13px;color:var(--g-95)}
+
+  /* ===== Right meta panel (cell info) ===== */
+  .right-panel{
+    position:absolute;top:18px;right:18px;width:280px;
+    background:rgba(20,22,22,0.82);
+    backdrop-filter: blur(14px) saturate(120%);
+    -webkit-backdrop-filter: blur(14px) saturate(120%);
+    border:1px solid var(--hairline-strong);
+    border-radius:10px;
+    box-shadow:var(--shadow-soft);
+    z-index:9;
+    transition: opacity .3s ease, transform .3s ease;
+  }
+  .rp-head{padding:12px 14px;border-bottom:1px solid var(--hairline);display:flex;align-items:center;gap:10px}
+  .rp-head .tag{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--g-50)}
+  .rp-head .name{font-size:13px;color:var(--g-95);font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rp-coord{font-family:var(--mono);font-size:10.5px;color:var(--g-60);padding:8px 14px;border-bottom:1px solid var(--hairline)}
+  .rp-coord span{color:var(--g-80)}
+  .rp-stats{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--hairline)}
+  .rp-stat{padding:12px 14px;border-right:1px solid var(--hairline)}
+  .rp-stat:last-child{border-right:0}
+  .rp-stat .k{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.1em;color:var(--g-50);display:block;margin-bottom:4px}
+  .rp-stat .v{font-family:var(--mono);font-size:18px;color:var(--g-95);font-weight:500}
+  .rp-stat .v small{font-size:11px;color:var(--g-60);font-weight:400;margin-left:3px}
+  .rp-actions{display:flex;gap:8px;padding:10px 12px}
+  .rp-actions button{
+    flex:1;background:transparent;border:1px solid var(--hairline-strong);color:var(--g-85);
+    padding:8px 10px;border-radius:6px;font:inherit;font-size:12px;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    transition:background .15s, color .15s, border-color .15s;
+  }
+  .rp-actions button:hover{background:rgba(255,255,255,0.05);color:#fff;border-color:rgba(255,255,255,0.18)}
+  .rp-actions button.primary{
+    color:var(--green);border-color:var(--green-line);background:var(--green-soft);
+  }
+  .rp-actions button.primary:hover{background:oklch(0.78 0.14 148 / 0.28)}
+
+  /* ===== Bottom bar (legend + scrubber) ===== */
+  .bottom-bar{
+    position:absolute;left:18px;right:18px;bottom:18px;
+    display:flex;align-items:center;gap:14px;
+    pointer-events:none;
+    z-index:9;
+  }
+  .bottom-bar > *{pointer-events:auto}
+
+  .legend{
+    background:rgba(20,22,22,0.82);
+    backdrop-filter: blur(14px) saturate(120%);
+    -webkit-backdrop-filter: blur(14px) saturate(120%);
+    border:1px solid var(--hairline-strong);
+    border-radius:10px;
+    padding:10px 14px;
+    display:flex;align-items:center;gap:14px;
+  }
+  .legend .ttl{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--g-50)}
+  .legend .row{display:flex;align-items:center;gap:14px}
+  .legend .item{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--g-80)}
+  .legend .item .sw{width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.18)}
+
+  .timeline{
+    flex:1;
+    background:rgba(20,22,22,0.82);
+    backdrop-filter: blur(14px) saturate(120%);
+    -webkit-backdrop-filter: blur(14px) saturate(120%);
+    border:1px solid var(--hairline-strong);
+    border-radius:10px;
+    padding:10px 16px;
+    display:flex;align-items:center;gap:14px;
+  }
+  .timeline .lbl{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--g-50);white-space:nowrap}
+  .timeline .track{
+    flex:1;height:18px;position:relative;display:flex;align-items:center;cursor:pointer;
+  }
+  .timeline .track::before{
+    content:"";position:absolute;left:0;right:0;height:1px;background:var(--g-30);
+  }
+  .timeline .ticks{position:absolute;inset:0;display:flex;justify-content:space-between;align-items:center}
+  .timeline .ticks span{width:1px;height:8px;background:var(--g-30)}
+  .timeline .ticks span.major{height:14px;background:var(--g-40)}
+  .timeline .knob{
+    position:absolute;width:14px;height:14px;border-radius:50%;
+    background:var(--green);box-shadow:0 0 0 3px rgba(0,0,0,0.6), 0 0 12px var(--green-line);
+    transform:translateX(-50%);
+  }
+  .timeline .ts{font-family:var(--mono);font-size:11px;color:var(--g-90);min-width:90px;text-align:right}
+
+  /* ===== Find a Route button ===== */
+  .route-btn{
+    position:absolute;right:18px;bottom:74px;z-index:10;
+    background:rgba(20,22,22,0.92);
+    backdrop-filter: blur(14px) saturate(120%);
+    border:1px solid var(--green-line);
+    color:var(--green);
+    padding:14px 18px;border-radius:10px;
+    font:inherit;font-size:13px;font-weight:500;letter-spacing:0.005em;
+    cursor:pointer;
+    display:inline-flex;align-items:center;gap:10px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.4), 0 12px 32px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.04);
+    transition: transform .15s ease, background .2s, border-color .2s;
+  }
+  .route-btn:hover{
+    background:oklch(0.78 0.14 148 / 0.18);
+    border-color:var(--green);
+    transform:translateY(-1px);
+  }
+  .route-btn .icon{
+    width:18px;height:18px;display:grid;place-items:center;
+  }
+  .route-btn .icon svg{width:18px;height:18px}
+  .route-btn .meta{
+    font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.12em;
+    color:var(--g-50);margin-left:8px;
+    border-left:1px solid var(--hairline-strong);padding-left:10px;
+  }
+
+  /* ===== HUD chips for FP view ===== */
+  .fp-hud{
+    position:absolute;top:18px;left:50%;transform:translateX(-50%);
+    display:flex;gap:8px;z-index:9;
+    background:rgba(20,22,22,0.82);
+    backdrop-filter: blur(14px) saturate(120%);
+    border:1px solid var(--hairline-strong);
+    border-radius:10px;
+    padding:10px 14px;
+    align-items:center;
+  }
+  .fp-hud .chip{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--mono);font-size:11px;color:var(--g-85);
+    padding-right:12px;border-right:1px solid var(--hairline);
+  }
+  .fp-hud .chip:last-child{border-right:0;padding-right:0}
+  .fp-hud .chip .k{color:var(--g-50);text-transform:uppercase;letter-spacing:0.1em;font-size:9.5px}
+  .fp-hud .chip .dot{width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(255,255,255,0.15)}
+
+  .exit-btn{
+    position:absolute;top:18px;left:18px;z-index:11;
+    background:rgba(20,22,22,0.92);
+    backdrop-filter: blur(14px) saturate(120%);
+    border:1px solid var(--hairline-strong);
+    color:var(--g-90);
+    padding:10px 14px;border-radius:8px;
+    font:inherit;font-size:12px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:8px;
+  }
+  .exit-btn:hover{background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.16)}
+  .exit-btn svg{width:13px;height:13px}
+
+  /* ===== Compass / scale ===== */
+  .compass{
+    position:absolute;right:18px;bottom:74px;z-index:8;
+    /* hidden in city view because route button takes that spot — show in FP only */
+    display:none;
+  }
+
+  /* ===== Crosshair label for hovered cell ===== */
+  .hover-tip{
+    position:absolute;pointer-events:none;z-index:12;
+    background:rgba(13,14,14,0.92);
+    border:1px solid var(--hairline-strong);
+    border-radius:6px;
+    padding:6px 8px;
+    font-family:var(--mono);font-size:10.5px;color:var(--g-90);
+    transform:translate(12px,12px);
+    opacity:0;transition:opacity .15s ease;
+    white-space:nowrap;
+  }
+  .hover-tip.show{opacity:1}
+  .hover-tip .v{color:var(--g-95);font-weight:500}
+  .hover-tip .k{color:var(--g-55);text-transform:uppercase;letter-spacing:0.1em;font-size:9px;margin-right:4px}
+
+  /* loading */
+  .loading{
+    position:absolute;inset:0;display:grid;place-items:center;color:var(--g-60);
+    font-family:var(--mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;
+    background:#0a0b0b;
+    z-index:50;
+    transition: opacity .4s ease;
+  }
+  .loading.done{opacity:0;pointer-events:none}
+  .loading .spinner{
+    width:28px;height:28px;border-radius:50%;border:1.5px solid var(--g-30);border-top-color:var(--green);
+    animation:spin 1s linear infinite;margin-bottom:14px
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* responsive nicety */
+  @media (max-width: 720px){
+    .right-panel{display:none}
+    .left-panel.expanded{width:calc(100vw - 36px)}
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="glyph"></span>
+      <span>AERIA</span>
+      <span class="sep">/</span>
+      <span class="sub">DFW · PM₂.₅ atlas</span>
+    </div>
+    <nav class="topnav" id="view-tabs">
+      <button data-view="city" aria-current="true">City overview</button>
+      <button data-view="street">Street view</button>
+      <button disabled style="opacity:.3;cursor:not-allowed">Time machine</button>
+      <button disabled style="opacity:.3;cursor:not-allowed">Route lab</button>
+    </nav>
+    <div class="top-right">
+      <span class="live"><span class="dot"></span>Live · 19 sensors</span>
+      <span class="meta">avg <b id="meta-pm">11.4</b> µg/m³</span>
+      <span class="meta">wind <b id="meta-wind">2.1 m/s</b> · 184°</span>
+      <span class="meta">updated <b>2 min</b> ago</span>
+    </div>
+  </header>
+
+  <!-- Main stage -->
+  <main class="stage" id="stage">
+    <canvas class="three-canvas" id="three-canvas"></canvas>
+
+    <!-- Persistent left panel -->
+    <aside class="left-panel expanded" id="left-panel" aria-label="Health recommendations">
+      <header class="lp-head" id="lp-head">
+        <span class="lp-cat-dot" id="lp-dot" style="color:#85c45a;background:#85c45a"></span>
+        <span class="lp-cat-text">
+          <span class="lbl">Air quality</span>
+          <span class="val" id="lp-cat">Moderate</span>
+        </span>
+        <button class="lp-toggle" id="lp-toggle" aria-label="Toggle panel">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path d="M3 5l3 3 3-3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </header>
+      <div class="lp-body">
+        <section class="lp-section">
+          <h4>Reading</h4>
+          <div class="lp-readout">
+            <span class="num" id="lp-pm">23.1</span>
+            <span class="unit">µg/m³ · PM₂.₅</span>
+            <span class="delta" id="lp-delta">▲ 4.2 vs. 24h</span>
+          </div>
+          <p class="lp-meta">EPA-corrected · IDW from <b id="lp-sources">5</b> nearby sensors · <span id="lp-conf">High confidence</span></p>
+        </section>
+
+        <section class="lp-section">
+          <h4>Who should take care</h4>
+          <div class="lp-rec warn">
+            <span class="glyph"></span>
+            <span><b>Sensitive groups</b> — asthma, COPD, heart disease, elderly, children, and pregnant people may notice symptoms with prolonged or heavy exertion.</span>
+          </div>
+          <div class="lp-rec ok">
+            <span class="glyph"></span>
+            <span>The general population is unlikely to be affected. No restrictions for healthy adults.</span>
+          </div>
+        </section>
+
+        <section class="lp-section">
+          <h4>Activity guidance</h4>
+          <div class="lp-rec">
+            <span class="glyph"></span>
+            <span><b>Outdoor exercise</b> — fine for most. Sensitive groups should consider shorter or lower-intensity sessions.</span>
+          </div>
+          <div class="lp-rec">
+            <span class="glyph"></span>
+            <span><b>Windows</b> — open is fine. Close briefly if you smell smoke or see haze.</span>
+          </div>
+          <div class="lp-rec">
+            <span class="glyph"></span>
+            <span><b>Masks</b> — not needed for the general public.</span>
+          </div>
+        </section>
+
+        <section class="lp-section">
+          <h4>Cell breakdown</h4>
+          <div class="lp-grid">
+            <div class="lp-pill"><span class="k">Traffic adj.</span><span class="v" id="lp-traffic">+2.1</span></div>
+            <div class="lp-pill"><span class="k">Wind adj.</span><span class="v" id="lp-windadj">−0.7</span></div>
+            <div class="lp-pill"><span class="k">Hwy dist.</span><span class="v" id="lp-hwy">410 m</span></div>
+            <div class="lp-pill"><span class="k">Updated</span><span class="v">2m ago</span></div>
+          </div>
+        </section>
+      </div>
+    </aside>
+
+    <!-- Right meta panel (current cell) -->
+    <aside class="right-panel" id="right-panel">
+      <header class="rp-head">
+        <span class="tag" id="rp-tag">Cell C-3</span>
+        <span class="name" id="rp-name">Downtown Dallas</span>
+      </header>
+      <div class="rp-coord">
+        lat <span id="rp-lat">32.781</span> · lon <span id="rp-lon">−96.797</span>
+      </div>
+      <div class="rp-stats">
+        <div class="rp-stat"><span class="k">PM₂.₅</span><span class="v"><span id="rp-pm">23.1</span><small>µg/m³</small></span></div>
+        <div class="rp-stat"><span class="k">AQI</span><span class="v"><span id="rp-aqi">74</span><small>US</small></span></div>
+      </div>
+      <div class="rp-actions">
+        <button id="btn-dropin" class="primary" title="Drop into street view">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" style="width:13px;height:13px"><circle cx="7" cy="6" r="2.4"/><path d="M7 8.6V12 M5 12h4" stroke-linecap="round"/></svg>
+          Drop into street
+        </button>
+        <button id="btn-pin">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" style="width:13px;height:13px"><path d="M7 1.5 8.6 5l3.5.4-2.6 2.5.7 3.5L7 9.7 3.8 11.4l.7-3.5L1.9 5.4 5.4 5 7 1.5z"/></svg>
+          Pin
+        </button>
+      </div>
+    </aside>
+
+    <!-- HUD chips (FP) -->
+    <div class="fp-hud" id="fp-hud" style="display:none">
+      <span class="chip"><span class="k">Cell</span><span id="fp-cell">C-3</span></span>
+      <span class="chip"><span class="k">PM₂.₅</span><span id="fp-pm">23.1 µg/m³</span></span>
+      <span class="chip"><span class="dot" id="fp-dot"></span><span id="fp-cat">Moderate</span></span>
+      <span class="chip"><span class="k">Particles</span><span id="fp-density">~1,200 / m³</span></span>
+    </div>
+
+    <!-- Exit (FP) -->
+    <button class="exit-btn" id="exit-btn" style="display:none">
+      <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9 2L4 7l5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back to overview
+    </button>
+
+    <!-- Find a Route -->
+    <button class="route-btn" id="route-btn">
+      <span class="icon">
+        <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="4" cy="14" r="2"/><circle cx="14" cy="4" r="2"/>
+          <path d="M5.4 12.6 12.6 5.4" stroke-dasharray="2 2" stroke-linecap="round"/>
+        </svg>
+      </span>
+      Find a route
+      <span class="meta">cleanest path · soon</span>
+    </button>
+
+    <!-- Bottom bar -->
+    <div class="bottom-bar" id="bottom-bar">
+      <div class="legend">
+        <span class="ttl">Particles · AQI</span>
+        <div class="row">
+          <span class="item"><span class="sw" style="background:#85c45a"></span>Good</span>
+          <span class="item"><span class="sw" style="background:#e6c84a"></span>Moderate</span>
+          <span class="item"><span class="sw" style="background:#e69140"></span>Sensitive</span>
+          <span class="item"><span class="sw" style="background:#d8534f"></span>Unhealthy</span>
+          <span class="item"><span class="sw" style="background:#8a5cd8"></span>Very Unhealthy</span>
+          <span class="item"><span class="sw" style="background:#6b1f1f"></span>Hazardous</span>
+        </div>
+      </div>
+      <div class="timeline">
+        <span class="lbl">Now</span>
+        <div class="track" id="track">
+          <div class="ticks">
+            <span class="major"></span><span></span><span></span><span></span><span></span>
+            <span class="major"></span><span></span><span></span><span></span><span></span>
+            <span class="major"></span><span></span><span></span><span></span><span></span>
+            <span class="major"></span><span></span><span></span><span></span><span></span>
+            <span class="major"></span>
+          </div>
+          <div class="knob" id="knob" style="left:100%"></div>
+        </div>
+        <span class="ts" id="ts">14:42 CT</span>
+      </div>
+    </div>
+
+    <div class="hover-tip" id="hover-tip">
+      <span><span class="k">Cell</span><span class="v" id="ht-cell">—</span></span>
+      <span style="margin-left:10px"><span class="k">PM</span><span class="v" id="ht-pm">—</span></span>
+    </div>
+
+    <div class="loading" id="loading">
+      <div style="text-align:center">
+        <div class="spinner"></div>
+        <div>Loading atlas · DFW · 200×200 grid</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer crumbs -->
+  <footer class="footer">
+    <span class="crumbs">
+      <span>aeria.atlas</span><i>›</i><span>dfw</span><i>›</i><span id="fc-view">city overview</span><i>›</i><span id="fc-cell">cell c-3 · downtown</span>
+    </span>
+    <span class="spacer"></span>
+    <span>bbox 32.55,−97.05 → 33.08,−96.46</span>
+    <span style="color:var(--g-30)">·</span>
+    <span>idw p=3 · r=0.15°</span>
+    <span style="color:var(--g-30)">·</span>
+    <span>build 2026.05.01</span>
+  </footer>
+</div>
+
+<!-- Three.js -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="aeria-scene.js"></script>
+
+</body>
+</html>

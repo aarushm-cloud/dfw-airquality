@@ -23,6 +23,20 @@ The server reads the same `.env` file as the Streamlit app (see `CLAUDE.md`),
 so `PURPLEAIR_API_KEY`, `OPENAQ_API_KEY`, `OPENWEATHERMAP_API_KEY`, and
 `TOMTOM_API_KEY` must all be set.
 
+### Optional: warm the cache at startup
+
+Setting `AERIA_WARMUP=1` before launching uvicorn kicks off the full grid
+pipeline in a background thread at startup, so the first user request is
+instant instead of paying the ~20 s cold-start cost.
+
+```bash
+AERIA_WARMUP=1 uvicorn api.main:app --reload --port 8000
+```
+
+Without the flag the backend behaves exactly as before — lazy load on first
+request. The warmup runs on a daemon thread, so `/api/health` and other
+endpoints stay responsive while it's priming.
+
 ## Endpoints
 
 All endpoints are GET-only and live under `/api`. Responses are cached in
@@ -103,6 +117,33 @@ cached pipeline snapshot as `/api/grid`.
 ```
 
 Returns 404 if the zip is unknown or falls outside the Dallas bounding box.
+
+### `GET /api/health`
+
+Cheap liveness + cache-warm probe. Hit by the frontend on every page load.
+Does no I/O.
+
+```json
+{ "status": "ok", "cache_warm": true, "uptime_seconds": 142 }
+```
+
+`cache_warm` flips to `true` once the grid pipeline has been run at least
+once (either by a real request or by `AERIA_WARMUP=1`).
+
+## Development tools
+
+### OpenAPI snapshot
+
+`api/scripts/snapshot_openapi.py` writes `api/openapi.snapshot.json` —
+a pretty-printed, sorted-keys dump of the live FastAPI schema. Run it
+manually whenever you want a fresh contract baseline:
+
+```bash
+python api/scripts/snapshot_openapi.py
+```
+
+Diffing the snapshot across commits surfaces unintended API contract
+changes. Not automated — the developer runs it on demand.
 
 ## Architecture notes
 

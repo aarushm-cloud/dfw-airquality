@@ -145,6 +145,25 @@ streamlit run app.py
 
 ---
 
+## Local development
+
+Phase 6 introduces the `AERIA` FastAPI backend at `/api`, which runs in
+parallel with the legacy Streamlit app. Use `dev.sh` to launch the dev
+stack:
+
+```bash
+./dev.sh                    # FastAPI backend on :8000 (auto-reload)
+./dev.sh --with-streamlit   # also start the legacy Streamlit app on :8501
+```
+
+Output from each process is prefixed (`[api]`, `[streamlit]`) so the
+multiplexed log stays scannable. Ctrl+C cleans up every child process.
+
+A Vite dev server entry will be added to `dev.sh` once the frontend lands
+in Session 2.
+
+---
+
 ## Background Collector
 
 ```bash

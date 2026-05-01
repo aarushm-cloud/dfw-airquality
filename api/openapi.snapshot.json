@@ -1,0 +1,468 @@
+{
+  "components": {
+    "schemas": {
+      "BBox": {
+        "properties": {
+          "east": {
+            "title": "East",
+            "type": "number"
+          },
+          "north": {
+            "title": "North",
+            "type": "number"
+          },
+          "south": {
+            "title": "South",
+            "type": "number"
+          },
+          "west": {
+            "title": "West",
+            "type": "number"
+          }
+        },
+        "required": [
+          "north",
+          "south",
+          "east",
+          "west"
+        ],
+        "title": "BBox",
+        "type": "object"
+      },
+      "CellResponse": {
+        "properties": {
+          "aqi_category": {
+            "title": "Aqi Category",
+            "type": "string"
+          },
+          "cell_i": {
+            "title": "Cell I",
+            "type": "integer"
+          },
+          "cell_j": {
+            "title": "Cell J",
+            "type": "integer"
+          },
+          "cell_lat": {
+            "title": "Cell Lat",
+            "type": "number"
+          },
+          "cell_lon": {
+            "title": "Cell Lon",
+            "type": "number"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          },
+          "neighborhood": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neighborhood"
+          },
+          "pm25": {
+            "title": "Pm25",
+            "type": "number"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "zip": {
+            "title": "Zip",
+            "type": "string"
+          }
+        },
+        "required": [
+          "zip",
+          "lat",
+          "lon",
+          "cell_lat",
+          "cell_lon",
+          "cell_i",
+          "cell_j",
+          "pm25",
+          "aqi_category",
+          "confidence",
+          "timestamp"
+        ],
+        "title": "CellResponse",
+        "type": "object"
+      },
+      "GridResponse": {
+        "properties": {
+          "avg_pm25": {
+            "title": "Avg Pm25",
+            "type": "number"
+          },
+          "bbox": {
+            "$ref": "#/components/schemas/BBox"
+          },
+          "confidence": {
+            "description": "2D confidence grid, same shape as pm25, values in [0, 1]",
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "Confidence",
+            "type": "array"
+          },
+          "lats": {
+            "description": "1D array of latitudes, length = resolution",
+            "items": {
+              "type": "number"
+            },
+            "title": "Lats",
+            "type": "array"
+          },
+          "lons": {
+            "description": "1D array of longitudes, length = resolution",
+            "items": {
+              "type": "number"
+            },
+            "title": "Lons",
+            "type": "array"
+          },
+          "pm25": {
+            "description": "2D PM2.5 grid, shape [resolution][resolution], row-major lat-major",
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "Pm25",
+            "type": "array"
+          },
+          "resolution": {
+            "description": "Grid is resolution x resolution",
+            "title": "Resolution",
+            "type": "integer"
+          },
+          "sensor_count": {
+            "title": "Sensor Count",
+            "type": "integer"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "wind_deg": {
+            "title": "Wind Deg",
+            "type": "number"
+          },
+          "wind_speed": {
+            "title": "Wind Speed",
+            "type": "number"
+          }
+        },
+        "required": [
+          "timestamp",
+          "resolution",
+          "bbox",
+          "lats",
+          "lons",
+          "pm25",
+          "confidence",
+          "wind_speed",
+          "wind_deg",
+          "sensor_count",
+          "avg_pm25"
+        ],
+        "title": "GridResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "SensorReading": {
+        "properties": {
+          "epa_corrected": {
+            "title": "Epa Corrected",
+            "type": "integer"
+          },
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pm25": {
+            "title": "Pm25",
+            "type": "number"
+          },
+          "pm25_raw": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pm25 Raw"
+          },
+          "sensor_id": {
+            "title": "Sensor Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sensor_id",
+          "name",
+          "lat",
+          "lon",
+          "pm25",
+          "epa_corrected",
+          "source"
+        ],
+        "title": "SensorReading",
+        "type": "object"
+      },
+      "SensorsResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "sensors": {
+            "items": {
+              "$ref": "#/components/schemas/SensorReading"
+            },
+            "title": "Sensors",
+            "type": "array"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "timestamp",
+          "sensors"
+        ],
+        "title": "SensorsResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "JSON wrapper around the DFW air quality pipeline (PurpleAir + OpenAQ + IDW + traffic/wind adjustment).",
+    "title": "AERIA \u00b7 DFW Air Quality API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Root  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Root",
+        "tags": [
+          "meta"
+        ]
+      }
+    },
+    "/api/cells/{zip_code}": {
+      "get": {
+        "description": "Look up the nearest grid cell for a US zip code and return its PM2.5.\n\nUses the same cached pipeline snapshot as /api/grid, so calls are fast\nonce the grid is warm.",
+        "operationId": "get_cell_api_cells__zip_code__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "zip_code",
+            "required": true,
+            "schema": {
+              "title": "Zip Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CellResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cell",
+        "tags": [
+          "cells"
+        ]
+      }
+    },
+    "/api/grid": {
+      "get": {
+        "description": "Full IDW + traffic/wind-adjusted PM2.5 grid over the Dallas bounding box.\n\nSlow on first call (~5-15s end-to-end including all upstream fetches);\ncached for 5 minutes after that.",
+        "operationId": "get_grid_api_grid_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GridResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Grid",
+        "tags": [
+          "grid"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "description": "Cheap liveness + cache-warm probe for the frontend.\n\nHit on every page load \u2014 must stay fast (no pipeline calls, no I/O).",
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Health Api Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "meta"
+        ]
+      }
+    },
+    "/api/sensors": {
+      "get": {
+        "description": "Live PM2.5 readings from PurpleAir + OpenAQ inside the Dallas bounding box.\n\nPurpleAir values are EPA-corrected at ingest. OpenAQ values are\nreference-grade and reported as-is. Cached for 5 minutes.",
+        "operationId": "get_sensors_api_sensors_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensorsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Sensors",
+        "tags": [
+          "sensors"
+        ]
+      }
+    }
+  }
+}
