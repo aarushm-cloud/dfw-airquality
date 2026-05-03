@@ -37,6 +37,15 @@ Without the flag the backend behaves exactly as before — lazy load on first
 request. The warmup runs on a daemon thread, so `/api/health` and other
 endpoints stay responsive while it's priming.
 
+## Environment
+
+| Variable | Default | Description |
+|---|---|---|
+| `AERIA_WARMUP` | unset | If set to `1`, pre-populates the grid cache in a background thread at startup. |
+| `AERIA_CORS_ORIGINS` | unset | Comma-separated list of additional CORS origins. Localhost dev origins (`http://localhost:5173` and `http://127.0.0.1:5173`) are always included. Set in deploy environments to add the production frontend origin (e.g. `https://aeria.vercel.app`). |
+
+The resolved CORS allowlist is logged once at module load as `[cors] active origins: ...` so a misconfigured deploy is immediately obvious in the logs.
+
 ## Endpoints
 
 All endpoints are GET-only and live under `/api`. Responses are cached in
@@ -153,5 +162,6 @@ changes. Not automated — the developer runs it on demand.
 - Caching is a small in-memory TTL dict per route. `routes/grid.py` owns the
   shared pipeline snapshot; `routes/cells.py` reads from the same snapshot
   so the two endpoints stay coherent within a single 5-minute window.
-- CORS is open to `http://localhost:5173` (Vite dev server) only. Tighten
-  before any deploy.
+- CORS is built from two sources at startup: the always-included localhost
+  dev origins and the comma-separated `AERIA_CORS_ORIGINS` env var. See the
+  Environment section above for deploy configuration.

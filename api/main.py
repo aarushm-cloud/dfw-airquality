@@ -23,6 +23,26 @@ from api.routes.sensors import router as sensors_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+cors_logger = logging.getLogger("aeria.cors")
+
+# Local Vite dev server origins — always permitted so a misconfigured deploy
+# env can never break local development.
+DEV_CORS_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+
+def resolve_cors_origins() -> list[str]:
+    """Build the CORS allowlist from dev defaults + the AERIA_CORS_ORIGINS env var.
+
+    AERIA_CORS_ORIGINS is a comma-separated list of additional origins (e.g. the
+    production frontend at https://aeria.vercel.app). Dev defaults are always
+    included; duplicates are dropped while preserving order.
+    """
+    raw = os.environ.get("AERIA_CORS_ORIGINS", "")
+    extras = [o.strip() for o in raw.split(",") if o.strip()]
+    origins = list(dict.fromkeys([*DEV_CORS_ORIGINS, *extras]))
+    cors_logger.info("[cors] active origins: %s", origins)
+    return origins
+
 
 app = FastAPI(
     title="AERIA · DFW Air Quality API",
@@ -30,14 +50,9 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Vite dev server runs on 5173. Allow it (and a couple of common alternatives)
-# during local development. Tighten this for any deploy.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=resolve_cors_origins(),
     allow_credentials=False,
     allow_methods=["GET"],
     allow_headers=["*"],
