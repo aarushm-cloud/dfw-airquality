@@ -15,3 +15,18 @@ export async function getHealth(): Promise<Health> {
   if (!res.ok) throw new Error(`Health check failed: ${res.status}`);
   return res.json();
 }
+
+export type GridResponse = {
+  lats: number[];
+  lons: number[];
+  pm25: number[][];
+  confidence: number[][];
+  generated_at?: string;
+  timestamp?: string;
+};
+
+export async function getGrid(): Promise<GridResponse> {
+  const res = await fetch(`${BASE_URL}/api/grid`);
+  if (!res.ok) throw new Error(`Grid fetch failed: ${res.status}`);
+  return res.json();
+}

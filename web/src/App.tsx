@@ -2,11 +2,15 @@ import { useEffect } from 'react';
 import { Scene } from './components/Scene';
 import { HealthBadge } from './components/HealthBadge';
 import { useConnection } from './state/connection';
+import { useGrid } from './state/grid';
 
 const HEALTH_POLL_INTERVAL_MS = 5_000;
 
 function App() {
   const poll = useConnection((s) => s.poll);
+  const connectionStatus = useConnection((s) => s.status);
+  const fetchGrid = useGrid((s) => s.fetchGrid);
+  const gridStatus = useGrid((s) => s.status);
 
   useEffect(() => {
     let cancelled = false;
@@ -22,6 +26,21 @@ function App() {
       clearInterval(id);
     };
   }, [poll]);
+
+  useEffect(() => {
+    if (connectionStatus !== 'ready') return;
+    if (gridStatus === 'idle' || gridStatus === 'error') {
+      fetchGrid();
+    }
+  }, [connectionStatus, gridStatus, fetchGrid]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    (window as unknown as { __stores: unknown }).__stores = {
+      connection: useConnection,
+      grid: useGrid,
+    };
+  }, []);
 
   return (
     <>
