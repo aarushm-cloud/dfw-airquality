@@ -2,10 +2,11 @@
 # dev.sh — start the AERIA dev stack with prefixed, multiplexed output.
 #
 # Usage:
-#   ./dev.sh                    # FastAPI backend only
-#   ./dev.sh --with-streamlit   # FastAPI + legacy Streamlit app side-by-side
+#   ./dev.sh                                    # FastAPI backend only
+#   ./dev.sh --with-streamlit                   # FastAPI + legacy Streamlit app
+#   ./dev.sh --with-frontend                    # FastAPI + Vite dev server (AERIA frontend)
+#   ./dev.sh --with-streamlit --with-frontend   # all three
 #
-# Phase 6 Session 2+ will add a Vite dev server here (see TODO below).
 # Ctrl+C cleanly terminates every child process.
 
 set -u
@@ -26,9 +27,11 @@ _kill_tree() {
 }
 
 WITH_STREAMLIT=0
+WITH_FRONTEND=0
 for arg in "$@"; do
   case "$arg" in
     --with-streamlit) WITH_STREAMLIT=1 ;;
+    --with-frontend)  WITH_FRONTEND=1 ;;
     -h|--help)
       grep -E '^# ' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -58,12 +61,14 @@ cleanup() {
   # patterns are unique to this project.
   pkill -TERM -f 'uvicorn api.main:app' 2>/dev/null || true
   pkill -TERM -f 'streamlit run app.py' 2>/dev/null || true
+  pkill -TERM -f 'vite.*5173' 2>/dev/null || true
   sleep 1
   for pid in "${PIDS[@]:-}"; do
     [[ -n "${pid:-}" ]] && _kill_tree "$pid" KILL
   done
   pkill -KILL -f 'uvicorn api.main:app' 2>/dev/null || true
   pkill -KILL -f 'streamlit run app.py' 2>/dev/null || true
+  pkill -KILL -f 'vite.*5173' 2>/dev/null || true
   wait 2>/dev/null || true
 }
 trap cleanup INT TERM EXIT
@@ -91,17 +96,28 @@ start_streamlit() {
   PIDS+=($!)
 }
 
-# TODO (Session 2+): start Vite dev server here once web/ exists.
-# start_web() {
-#   echo "[dev] starting Vite on :5173"
-#   (cd web && npm run dev 2>&1 | prefix web) &
-#   PIDS+=($!)
-# }
+start_web() {
+  if [[ ! -d "$ROOT/web/node_modules" ]]; then
+    echo "[dev] web/node_modules not found — run 'cd web && npm install' first" >&2
+    return 1
+  fi
+  echo "[dev] starting Vite on :5173"
+  # nvm-installed node lives outside the default PATH; source it if available
+  # so child shells can find `npm`. Harmless if nvm isn't present.
+  if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+    (cd "$ROOT/web" && bash -c 'source "$HOME/.nvm/nvm.sh" && npm run dev' 2>&1 | prefix web) &
+  else
+    (cd "$ROOT/web" && npm run dev 2>&1 | prefix web) &
+  fi
+  PIDS+=($!)
+}
 
 start_api
 if [[ "$WITH_STREAMLIT" -eq 1 ]]; then
   start_streamlit
 fi
-# start_web   # uncomment in Session 2
+if [[ "$WITH_FRONTEND" -eq 1 ]]; then
+  start_web
+fi
 
 wait

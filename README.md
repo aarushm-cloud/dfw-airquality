@@ -152,15 +152,16 @@ parallel with the legacy Streamlit app. Use `dev.sh` to launch the dev
 stack:
 
 ```bash
-./dev.sh                    # FastAPI backend on :8000 (auto-reload)
-./dev.sh --with-streamlit   # also start the legacy Streamlit app on :8501
+./dev.sh                                    # FastAPI backend on :8000 (auto-reload)
+./dev.sh --with-streamlit                   # also start the legacy Streamlit app on :8501
+./dev.sh --with-frontend                    # also start the AERIA Vite dev server on :5173
+./dev.sh --with-streamlit --with-frontend   # all three at once
 ```
 
-Output from each process is prefixed (`[api]`, `[streamlit]`) so the
+Output from each process is prefixed (`[api]`, `[streamlit]`, `[web]`) so the
 multiplexed log stays scannable. Ctrl+C cleans up every child process.
 
-A Vite dev server entry will be added to `dev.sh` once the frontend lands
-in Session 2.
+The frontend lives in [`web/`](web/) — see `web/README.md` for setup.
 
 ---
 
