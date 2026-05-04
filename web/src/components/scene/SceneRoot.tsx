@@ -2,7 +2,9 @@ import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { Buildings } from './Buildings';
+import { CellFloorTint } from './CellFloorTint';
 import { CellGrid } from './CellGrid';
+import { Particles } from './Particles';
 import { useSceneStore } from '../../state/scene';
 
 export function SceneRoot() {
@@ -51,8 +53,10 @@ export function SceneRoot() {
         <meshStandardMaterial color="#0a0a0f" roughness={1} />
       </mesh>
 
+      <CellFloorTint />
       <CellGrid />
       <Buildings />
+      <Particles />
 
       {import.meta.env.DEV && <axesHelper args={[5]} />}
     </>

@@ -2,6 +2,8 @@
 // PM25_COLORSCALE in viz/heatmap.py. The colors here are the only place AQI
 // hues are allowed in DOM chrome (the dot literally restates the AQI signal).
 
+import * as THREE from 'three';
+
 export type AqiCategory =
   | 'good'
   | 'moderate'
@@ -35,4 +37,17 @@ export function classifyPm25(pm25: number): AqiCategory {
   if (pm25 <= 150.4) return 'unhealthy';
   if (pm25 <= 250.4) return 'veryUnhealthy';
   return 'hazardous';
+}
+
+// Cached: constructing THREE.Color from a hex string is non-trivial and the
+// scene calls this 5,000+ times per data refresh. Six categories → six entries.
+const _colorCache = new Map<string, THREE.Color>();
+export function threeColorForPm25(pm25: number): THREE.Color {
+  const hex = AQI_COLOR[classifyPm25(pm25)];
+  let c = _colorCache.get(hex);
+  if (!c) {
+    c = new THREE.Color(hex);
+    _colorCache.set(hex, c);
+  }
+  return c;
 }
