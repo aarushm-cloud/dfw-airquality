@@ -47,7 +47,62 @@ A dev-only round-trip assertion runs at module load and console.asserts that `ce
 - No green in the palette. Status indicators use gold/teal/stone from locked tokens.
 - Hover state in the scene is `useRef`-based to avoid 60Hz re-renders. Selected state is React/Zustand state because clicks are infrequent.
 - Per-cell rendering uses one `<instancedMesh>` of 900 instances (R3F supports raycasting against instanced meshes natively via `e.instanceId`). Don't render 900 individual meshes.
-- Cells use `MeshBasicMaterial` (unlit) so all 900 stay visually consistent. Buildings (Session 3b) will be lit; that contrast is the right division.
+- Cells use `MeshBasicMaterial` (unlit) so all 900 stay visually consistent. Buildings use `MeshStandardMaterial` with `flatShading` so they pick up the directional light and read as concrete. The lit/unlit split is the right division.
+
+## Buildings
+
+Implementation: [`src/world/buildings.ts`](src/world/buildings.ts) (deterministic generator) + [`src/components/scene/Buildings.tsx`](src/components/scene/Buildings.tsx) (R3F instanced mesh).
+
+### Density rule (locked)
+Procedural noise + radial bias + low-frequency separation. **No AQI / PM₂.₅ input.** No real geography. No hand-tagged districts. The signature shape is a dense centre that fades toward the bbox edges, broken into 3–5 distinct city clusters by a low-frequency noise modulator that carves "valleys" between them.
+
+```
+density(row, col) = (radial * 0.7 + local * 0.3 + radial * local * 0.4) * separation
+  radial      = exp(-distFromOrigin / 6.5)            // soft radial falloff
+  local       = noise01(row * 0.35, col * 0.35)       // ~3–6 cell clusters
+  separation  = 0.4 + 0.6 * noise01(row * 0.08, col * 0.08)  // city gaps
+```
+
+Density bins to per-cell building count: `<0.18 → 0`, `<0.40 → 1`, `<0.70 → 2`, else 3. Empty cells are intentional and form the gaps between cities — they remain hover/click targets via the underlying `CellGrid` instanced mesh.
+
+Distribution gate (run in `/tmp/gen_smoke.mjs` or equivalent before any density-rule change):
+- Total buildings in 400–1500
+- Mean height in 0.8–1.6 world units
+- Per-cell density falls off radially (downtown > suburbs)
+
+### Material + shading
+`MeshStandardMaterial({ color: '#7a7480', roughness: 0.85, metalness: 0, flatShading: true })`. Flat shading is intentional — smooth-shaded boxes look like polished plastic; flat-shaded boxes read as concrete. Don't smooth-shade them.
+
+### Geometry + scaling
+One unit `BoxGeometry(1,1,1)` reused across all instances. Each instance scales independently to `(width, height, depth)`. Per-instance footprint:
+
+```
+footprintFrac = 0.32 + 0.23 * (1 - min(height, 2.5) / 2.5)   // 0.32–0.55 of the cell
+width  = footprintFrac * CELL_X
+depth  = footprintFrac * CELL_Z
+```
+
+Result: ~30% of the cell area is occupied by the building, the rest stays visible for cell hover/click feedback.
+
+### Y placement
+Building centers at `Y = 0.01 + height/2`, so the base sits flush with the cell plane (Y=0.01) and growth is in `+Y`. Cell hover (Y=0.02) and selected ring (Y=0.03) clip into the base of buildings — that's intentional: hover/selected mark *cells*, not buildings.
+
+### Pointer events
+Buildings do **not** intercept raycasts. The `<instancedMesh>` in `Buildings.tsx` sets `raycast={() => null}` so clicks pass through to the cell underneath. Cells own the click target. Don't change this without also reworking the click flow.
+
+### Selected ring overflow
+The selected-cell highlight in `CellGrid` is sized at `1.04 * CELL_INSET` so the gold ring extends slightly past the building's footprint and stays visible on all four sides even when a tall building sits on the cell. Hover stays at `0.96 * CELL_INSET` so it never bleeds into neighbouring cells.
+
+### Determinism
+Generator is seeded via the LCG in `src/world/noise.ts` (`PRNG(0xae12a)`). The city is identical across reloads. Don't change the seed without intent — it'll redraw the entire skyline. Don't switch to `Math.random()`.
+
+## Camera
+
+Initial position: `[0, 38, 0.1]` — essentially top-down. Centers the full grid in the viewport at ~93% fill on a 16:9 display. The tiny Z offset keeps OrbitControls' "up" direction defined so dragging-to-tilt works on the first frame. `minPolarAngle: 0` allows users to rotate back to top-down.
+
+`enablePan: false` — the city stays anchored at world origin. Panning was disabled because it let users drift the whole grid off-center, breaking the cell-to-cell mental map. Don't re-enable without a strong reason.
+
+`minDistance: 4` lets users zoom right down to a few-cell cluster. `maxDistance: 60` is paired with fog `far: 90` (always keep `maxDistance < fogFar` with margin).
 
 ## Quirks
 
@@ -101,6 +156,17 @@ Items intentionally deferred. Address when the upstream condition is met.
   currently captured manually. A small Playwright script in `web/scripts/`
   would make baselines reproducible. Defer until visual regressions become
   a real problem.
+- **Building shadows.** Currently disabled. Adding shadow maps means tuning
+  the directional light's shadow camera frustum to cover the whole grid plus
+  bias to avoid acne — real work, not the point of 3b. Defer until a polish
+  pass after the full UI is in.
+- **Procedural roads (Session 3b.5).** Faint emissive highway lines along
+  ~every 5th cell axis on the ground plane, plus a road-exclusion zone in
+  `buildings.ts` so no building spawns within ~0.15 cells of a road. Should
+  land before Session 3c so roads inform particle spawn patterns.
+- **Per-building rooftop slots for 3c+.** The `Building` type already carries
+  `row`/`col`. If 3c ever wants particles to spawn from rooftops, the
+  generator already gives every consumer the data it needs.
 
 ## CORS contract
 The backend's allowlist is built from two sources:

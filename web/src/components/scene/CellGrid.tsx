@@ -13,6 +13,9 @@ import { useGrid } from '../../state/grid';
 const CELL_INSET = 0.96;
 const CELL_SCALE_X = CELL_X * CELL_INSET;
 const CELL_SCALE_Z = CELL_Z * CELL_INSET;
+// Selected ring overflows the cell slightly so a tall building can't fully
+// hide it. Hover stays inset so it never bleeds into a neighbour.
+const SELECTED_OVERFLOW = 1.04;
 const TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
 
 const HOVER_Y = 0.02;
@@ -114,7 +117,7 @@ export function CellGrid() {
         onClick={handleClick}
       >
         <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial color="#1a1a26" transparent opacity={0.6} />
+        <meshBasicMaterial color="#26222e" transparent opacity={0.8} />
       </instancedMesh>
 
       <mesh
@@ -124,17 +127,17 @@ export function CellGrid() {
         visible={false}
       >
         <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial color="#ffd166" transparent opacity={0.15} />
+        <meshBasicMaterial color="#ffd166" transparent opacity={0.25} />
       </mesh>
 
       <mesh
         ref={selectedMeshRef}
         rotation={[-Math.PI / 2, 0, 0]}
-        scale={[CELL_SCALE_X, CELL_SCALE_Z, 1]}
+        scale={[CELL_SCALE_X * SELECTED_OVERFLOW, CELL_SCALE_Z * SELECTED_OVERFLOW, 1]}
         visible={false}
       >
         <planeGeometry args={[1, 1]} />
-        <meshBasicMaterial color="#ffd166" transparent opacity={0.3} />
+        <meshBasicMaterial color="#ffd166" transparent opacity={0.45} />
       </mesh>
     </group>
   );
