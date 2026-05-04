@@ -1,8 +1,23 @@
+import { useEffect, useRef } from 'react';
+import { useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { Buildings } from './Buildings';
 import { CellGrid } from './CellGrid';
+import { useSceneStore } from '../../state/scene';
 
 export function SceneRoot() {
+  const controlsRef = useRef<any>(null);
+  const { camera } = useThree();
+  const registerControls = useSceneStore((s) => s.registerControls);
+
+  // Publish handles for DOM-side panners. Cleanup on unmount is required —
+  // see useSceneStore docs for why.
+  useEffect(() => {
+    if (!controlsRef.current) return;
+    registerControls(controlsRef.current, camera);
+    return () => registerControls(null, null);
+  }, [camera, registerControls]);
+
   return (
     <>
       <color attach="background" args={['#0a0a0f']} />
@@ -18,6 +33,7 @@ export function SceneRoot() {
           without hitting the polar singularity. */}
       <PerspectiveCamera makeDefault position={[0, 38, 0.1]} fov={45} near={0.1} far={500} />
       <OrbitControls
+        ref={controlsRef}
         target={[0, 0, 0]}
         enableDamping
         dampingFactor={0.18}

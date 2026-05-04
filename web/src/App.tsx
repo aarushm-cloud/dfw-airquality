@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Scene } from './components/Scene';
 import { HealthBadge } from './components/HealthBadge';
+import { ZipSearch } from './components/ui/ZipSearch';
 import { useConnection } from './state/connection';
 import { useGrid } from './state/grid';
 
@@ -45,6 +46,7 @@ function App() {
   return (
     <>
       <Scene />
+      <ZipSearch />
       <HealthBadge />
     </>
   );

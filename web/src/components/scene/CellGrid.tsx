@@ -5,7 +5,6 @@ import {
   CELL_X,
   CELL_Z,
   GRID_SIZE,
-  cellToLatLon,
   cellToWorld,
 } from '../../world/bbox';
 import { useGrid } from '../../state/grid';
@@ -27,8 +26,9 @@ export function CellGrid() {
   const selectedMeshRef = useRef<THREE.Mesh>(null);
   const hoveredInstanceRef = useRef<number | null>(null);
 
-  const setSelectedCell = useGrid((s) => s.setSelectedCell);
-  const selectedCell = useGrid((s) => s.selectedCell);
+  const selectCellByCoord = useGrid((s) => s.selectCellByCoord);
+  const selectedCellRow = useGrid((s) => s.selectedCellRow);
+  const selectedCellCol = useGrid((s) => s.selectedCellCol);
 
   const tempObject = useMemo(() => new THREE.Object3D(), []);
 
@@ -52,14 +52,14 @@ export function CellGrid() {
   useEffect(() => {
     const sel = selectedMeshRef.current;
     if (!sel) return;
-    if (selectedCell) {
-      const { x, z } = cellToWorld(selectedCell);
+    if (selectedCellRow !== null && selectedCellCol !== null) {
+      const { x, z } = cellToWorld({ row: selectedCellRow, col: selectedCellCol });
       sel.position.set(x, SELECTED_Y, z);
       sel.visible = true;
     } else {
       sel.visible = false;
     }
-  }, [selectedCell]);
+  }, [selectedCellRow, selectedCellCol]);
 
   useEffect(() => {
     return () => {
@@ -99,11 +99,7 @@ export function CellGrid() {
     if (id === undefined) return;
     const row = Math.floor(id / GRID_SIZE);
     const col = id % GRID_SIZE;
-    const { lat, lon } = cellToLatLon({ row, col });
-    console.log(
-      `[cell] (${row}, ${col}) | bbox: (${lat.toFixed(4)}, ${lon.toFixed(4)}) | zip: pending`,
-    );
-    setSelectedCell({ row, col });
+    selectCellByCoord(row, col);
   };
 
   return (

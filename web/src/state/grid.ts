@@ -1,11 +1,20 @@
 import { create } from 'zustand';
-import { getGrid, type GridResponse } from '../api/client';
+import {
+  getGrid,
+  getCellAt,
+  getCellByZip,
+  ZipNotCoveredError,
+  type GridResponse,
+} from '../api/client';
 import {
   cellToLatLon,
+  cellToWorld,
+  latLonToCell,
   GRID_SIZE,
   SOURCE_GRID_SIZE,
-  type CellCoord,
 } from '../world/bbox';
+import { useSceneStore } from './scene';
+import { panCameraTo } from '../components/scene/cameraPan';
 
 export type GridStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -27,13 +36,25 @@ export type CellSummary = {
   confidenceMin: number;
 };
 
+export type SelectedCellMeta = {
+  zip: string | null;
+  neighborhood: string | null;
+  metaStatus: 'loading' | 'ready' | 'error';
+};
+
 type GridState = {
   status: GridStatus;
   raw: GridData | null;
   cells: CellSummary[];
-  selectedCell: CellCoord | null;
+
+  selectedCellRow: number | null;
+  selectedCellCol: number | null;
+  selectedCellMeta: SelectedCellMeta | null;
+
   fetchGrid: () => Promise<void>;
-  setSelectedCell: (c: CellCoord | null) => void;
+  selectCellByCoord: (row: number, col: number) => Promise<void>;
+  selectCellByZip: (zip: string) => Promise<void>;
+  clearSelection: () => void;
 };
 
 function validatePayload(data: GridResponse): void {
@@ -100,11 +121,17 @@ function aggregateCells(data: GridResponse): CellSummary[] {
   return cells;
 }
 
-export const useGrid = create<GridState>((set) => ({
+// Monotonic token. Each new selection bumps it; in-flight resolutions check
+// before writing back, so a stale zip lookup can't clobber a newer selection.
+let _selectionToken = 0;
+
+export const useGrid = create<GridState>((set, get) => ({
   status: 'idle',
   raw: null,
   cells: [],
-  selectedCell: null,
+  selectedCellRow: null,
+  selectedCellCol: null,
+  selectedCellMeta: null,
 
   fetchGrid: async () => {
     set({ status: 'loading' });
@@ -129,5 +156,59 @@ export const useGrid = create<GridState>((set) => ({
     }
   },
 
-  setSelectedCell: (c) => set({ selectedCell: c }),
+  selectCellByCoord: async (row, col) => {
+    const token = ++_selectionToken;
+
+    set({
+      selectedCellRow: row,
+      selectedCellCol: col,
+      selectedCellMeta: { zip: null, neighborhood: null, metaStatus: 'loading' },
+    });
+
+    const { controls, camera } = useSceneStore.getState();
+    const cell = get().cells.find((c) => c.row === row && c.col === col);
+    if (controls && camera && cell) {
+      const world = cellToWorld({ row, col });
+      panCameraTo(controls, camera, world);
+    }
+
+    if (!cell) {
+      if (token === _selectionToken) {
+        set({ selectedCellMeta: { zip: null, neighborhood: null, metaStatus: 'error' } });
+      }
+      return;
+    }
+
+    try {
+      const result = await getCellAt(cell.centerLat, cell.centerLon);
+      if (token !== _selectionToken) return;
+      set({
+        selectedCellMeta: {
+          zip: result.zip,
+          neighborhood: result.neighborhood,
+          metaStatus: 'ready',
+        },
+      });
+    } catch (err) {
+      if (token !== _selectionToken) return;
+      set({ selectedCellMeta: { zip: null, neighborhood: null, metaStatus: 'error' } });
+      console.warn('[selection] zip lookup failed:', err);
+    }
+  },
+
+  selectCellByZip: async (zip) => {
+    const result = await getCellByZip(zip);
+    const cellCoord = latLonToCell({ lat: result.lat, lon: result.lon });
+    if (!cellCoord) throw new ZipNotCoveredError(zip);
+    await get().selectCellByCoord(cellCoord.row, cellCoord.col);
+  },
+
+  clearSelection: () => {
+    ++_selectionToken;
+    set({
+      selectedCellRow: null,
+      selectedCellCol: null,
+      selectedCellMeta: null,
+    });
+  },
 }));
