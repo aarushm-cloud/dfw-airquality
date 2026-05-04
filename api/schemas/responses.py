@@ -52,3 +52,13 @@ class CellResponse(BaseModel):
     confidence: float
     neighborhood: str | None = None
     timestamp: str
+
+
+class CellAtResponse(BaseModel):
+    lat: float
+    lon: float
+    zip: str | None
+    neighborhood: str | None
+    row: int | None
+    col: int | None
+    in_bbox: bool

@@ -29,6 +29,77 @@
         "title": "BBox",
         "type": "object"
       },
+      "CellAtResponse": {
+        "properties": {
+          "col": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Col"
+          },
+          "in_bbox": {
+            "title": "In Bbox",
+            "type": "boolean"
+          },
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          },
+          "neighborhood": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Neighborhood"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          },
+          "zip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zip"
+          }
+        },
+        "required": [
+          "lat",
+          "lon",
+          "zip",
+          "neighborhood",
+          "row",
+          "col",
+          "in_bbox"
+        ],
+        "title": "CellAtResponse",
+        "type": "object"
+      },
       "CellResponse": {
         "properties": {
           "aqi_category": {
@@ -350,6 +421,58 @@
         "summary": "Root",
         "tags": [
           "meta"
+        ]
+      }
+    },
+    "/api/cells/at": {
+      "get": {
+        "description": "Reverse-geocode a coordinate to its zip + neighborhood + grid cell.\n\nUsed by the frontend after a cell click, since the click only knows row/col\nand needs a zip for display. Cached with 2-decimal rounding (~1.1 km).",
+        "operationId": "get_cell_at_api_cells_at_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "lat",
+            "required": true,
+            "schema": {
+              "title": "Lat",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "lon",
+            "required": true,
+            "schema": {
+              "title": "Lon",
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CellAtResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cell At",
+        "tags": [
+          "cells"
         ]
       }
     },
