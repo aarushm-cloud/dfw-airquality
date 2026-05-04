@@ -104,6 +104,28 @@ Initial position: `[0, 38, 0.1]` — essentially top-down. Centers the full grid
 
 `minDistance: 4` lets users zoom right down to a few-cell cluster. `maxDistance: 60` is paired with fog `far: 90` (always keep `maxDistance < fogFar` with margin).
 
+## UI chrome
+
+DOM-side UI components live in `src/components/ui/`. R3F scene components live in `src/components/scene/`. Don't mix the two trees — DOM children can't render inside the Canvas, and scene children can't render outside it.
+
+### Floating panels
+- Absolute positioned, `z-20+`, `pointer-events-auto`
+- Container chrome: `bg-ink-900/85`+ with backdrop blur, hairline borders, `rounded-sm`
+- Gold (`#ffd166`) is the active-state accent (focus rings, selected). AQI colors are reserved for AQI signal. The single legal exception is the AQI category dot in panels, where the dot's color literally is the AQI signal restated.
+- Typography: Fraunces serif for primary numerics (the big PM₂.₅ value); JetBrains Mono uppercase for metadata, status labels, and ID-like strings; Inter Tight for body text.
+
+### Selection state
+- Lives in the grid store ([`src/state/grid.ts`](src/state/grid.ts)) — `selectedCellRow`, `selectedCellCol`, `selectedCellMeta`
+- All selection paths route through `selectCellByCoord(row, col, { pan? })` or `selectCellByZip(zip)`. Don't write to the selection fields directly
+- `pan` defaults to `false`. Click and future pin paths leave the camera alone; only explicit-search paths opt in with `{ pan: true }`. Future selection paths should default to no-pan unless there's a clear reason
+- `clearSelection()` invalidates the selection token and clears the meta — call this from any close/dismiss UI
+- Async selection uses a monotonically increasing request token. In-flight zip resolutions check `token === _selectionToken` before writing back, so fast successive selections never flicker stale data
+
+### Cross-canvas handles
+- OrbitControls and the active camera are registered into [`useSceneStore`](src/state/scene.ts) by `SceneRoot` on mount. DOM-side panners read from the store rather than threading refs through props
+- `SceneRoot`'s effect MUST clear the handles on unmount. Without the cleanup, HMR or scene remount leaves stale handles pointing at a destroyed Three camera, and the next pan crashes
+- Camera pan utility lives in [`src/components/scene/cameraPan.ts`](src/components/scene/cameraPan.ts). It returns a cancel fn so a follow-up pan can abort an in-flight animation
+
 ## Quirks
 
 ### npm install requires `--legacy-peer-deps`
@@ -167,6 +189,17 @@ Items intentionally deferred. Address when the upstream condition is met.
 - **Per-building rooftop slots for 3c+.** The `Building` type already carries
   `row`/`col`. If 3c ever wants particles to spawn from rooftops, the
   generator already gives every consumer the data it needs.
+- **"Drop into street" button** is a placeholder until Session 6 wires the
+  street-drop-in scene. Tooltip reads "Available in Session 6".
+- **"Pin" feature** is deferred. Will need a pinned-cells store + persistence.
+  Tooltip reads "Coming soon".
+- **Camera-pan offset preservation is Cartesian.** With the locked top-down
+  camera this is fine (offset is mostly a vertical Y delta). After a future
+  retune to an isometric camera, switch to spherical-relative offset
+  preservation in [`cameraPan.ts`](src/components/scene/cameraPan.ts) so pans
+  don't drift the polar angle.
+- **Keyboard shortcut for the search bar** (e.g. `/` to focus the input) is
+  unscoped — add when keyboard nav becomes a usability ask.
 
 ## CORS contract
 The backend's allowlist is built from two sources:

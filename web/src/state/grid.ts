@@ -52,7 +52,9 @@ type GridState = {
   selectedCellMeta: SelectedCellMeta | null;
 
   fetchGrid: () => Promise<void>;
-  selectCellByCoord: (row: number, col: number) => Promise<void>;
+  // pan defaults to false — most selection paths (click, future pin) shouldn't
+  // move the camera. Explicit-search paths opt in by passing { pan: true }.
+  selectCellByCoord: (row: number, col: number, opts?: { pan?: boolean }) => Promise<void>;
   selectCellByZip: (zip: string) => Promise<void>;
   clearSelection: () => void;
 };
@@ -156,8 +158,9 @@ export const useGrid = create<GridState>((set, get) => ({
     }
   },
 
-  selectCellByCoord: async (row, col) => {
+  selectCellByCoord: async (row, col, opts) => {
     const token = ++_selectionToken;
+    const pan = opts?.pan ?? false;
 
     set({
       selectedCellRow: row,
@@ -165,11 +168,13 @@ export const useGrid = create<GridState>((set, get) => ({
       selectedCellMeta: { zip: null, neighborhood: null, metaStatus: 'loading' },
     });
 
-    const { controls, camera } = useSceneStore.getState();
     const cell = get().cells.find((c) => c.row === row && c.col === col);
-    if (controls && camera && cell) {
-      const world = cellToWorld({ row, col });
-      panCameraTo(controls, camera, world);
+    if (pan) {
+      const { controls, camera } = useSceneStore.getState();
+      if (controls && camera && cell) {
+        const world = cellToWorld({ row, col });
+        panCameraTo(controls, camera, world);
+      }
     }
 
     if (!cell) {
@@ -200,7 +205,7 @@ export const useGrid = create<GridState>((set, get) => ({
     const result = await getCellByZip(zip);
     const cellCoord = latLonToCell({ lat: result.lat, lon: result.lon });
     if (!cellCoord) throw new ZipNotCoveredError(zip);
-    await get().selectCellByCoord(cellCoord.row, cellCoord.col);
+    await get().selectCellByCoord(cellCoord.row, cellCoord.col, { pan: true });
   },
 
   clearSelection: () => {

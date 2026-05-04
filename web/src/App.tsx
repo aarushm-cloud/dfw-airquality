@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Scene } from './components/Scene';
 import { HealthBadge } from './components/HealthBadge';
 import { ZipSearch } from './components/ui/ZipSearch';
+import { CellInfoCard } from './components/ui/CellInfoCard';
 import { useConnection } from './state/connection';
 import { useGrid } from './state/grid';
 
@@ -47,6 +48,7 @@ function App() {
     <>
       <Scene />
       <ZipSearch />
+      <CellInfoCard />
       <HealthBadge />
     </>
   );

@@ -1,0 +1,38 @@
+// PM₂.₅ → AQI category mapping. Mirrors AQI_THRESHOLDS in config.py and the
+// PM25_COLORSCALE in viz/heatmap.py. The colors here are the only place AQI
+// hues are allowed in DOM chrome (the dot literally restates the AQI signal).
+
+export type AqiCategory =
+  | 'good'
+  | 'moderate'
+  | 'sensitive'
+  | 'unhealthy'
+  | 'veryUnhealthy'
+  | 'hazardous';
+
+export const AQI_LABEL: Record<AqiCategory, string> = {
+  good: 'GOOD',
+  moderate: 'MODERATE',
+  sensitive: 'SENSITIVE',
+  unhealthy: 'UNHEALTHY',
+  veryUnhealthy: 'VERY UNHEALTHY',
+  hazardous: 'HAZARDOUS',
+};
+
+export const AQI_COLOR: Record<AqiCategory, string> = {
+  good: '#00e400',
+  moderate: '#ffff00',
+  sensitive: '#ff7e00',
+  unhealthy: '#ff0000',
+  veryUnhealthy: '#8f3f97',
+  hazardous: '#7e0023',
+};
+
+export function classifyPm25(pm25: number): AqiCategory {
+  if (pm25 <= 12) return 'good';
+  if (pm25 <= 35.4) return 'moderate';
+  if (pm25 <= 55.4) return 'sensitive';
+  if (pm25 <= 150.4) return 'unhealthy';
+  if (pm25 <= 250.4) return 'veryUnhealthy';
+  return 'hazardous';
+}

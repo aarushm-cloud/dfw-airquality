@@ -59,7 +59,7 @@ export function ZipSearch() {
     <form
       onSubmit={onSubmit}
       className={[
-        'fixed top-4 left-4 z-20 pointer-events-auto',
+        'fixed top-40 left-4 z-20 pointer-events-auto',
         'bg-ink-900/85 backdrop-blur-sm',
         'border border-hairline rounded-sm',
         'p-3',
