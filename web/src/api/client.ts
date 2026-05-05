@@ -82,3 +82,27 @@ export async function getCellAt(lat: number, lon: number): Promise<CellAt> {
   if (!res.ok) throw new Error(`Coord lookup failed: ${res.status}`);
   return res.json();
 }
+
+// /api/sensors shape (verified via curl 2026-05-04):
+// { count: number, timestamp: string, sensors: SensorRow[] }
+// No wind fields exposed at metro or per-sensor level — see CONTRACT future-cleanup.
+export type SensorsResponse = {
+  count: number;
+  timestamp: string;
+  sensors: Array<{
+    sensor_id: string;
+    name: string;
+    lat: number;
+    lon: number;
+    pm25: number;
+    pm25_raw: number;
+    epa_corrected: number;
+    source: string;
+  }>;
+};
+
+export async function getSensors(): Promise<SensorsResponse> {
+  const res = await fetch(`${BASE_URL}/api/sensors`);
+  if (!res.ok) throw new Error(`Sensors fetch failed: ${res.status}`);
+  return res.json();
+}
