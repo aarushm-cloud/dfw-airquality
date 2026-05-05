@@ -126,6 +126,42 @@ DOM-side UI components live in `src/components/ui/`. R3F scene components live i
 - `SceneRoot`'s effect MUST clear the handles on unmount. Without the cleanup, HMR or scene remount leaves stale handles pointing at a destroyed Three camera, and the next pan crashes
 - Camera pan utility lives in [`src/components/scene/cameraPan.ts`](src/components/scene/cameraPan.ts). It returns a cancel fn so a follow-up pan can abort an in-flight animation
 
+### Left panel ([`src/components/ui/LeftPanel.tsx`](src/components/ui/LeftPanel.tsx))
+- Width **280px** (constant `PANEL_WIDTH_PX` in the same file). Full-height, left-edge, fixed positioning
+- Six sections, top to bottom: header / status / who-should-take-care / activity guidance / cell breakdown / source-footer
+- Health guidance content is sourced from EPA AirNow Activity Guide (Feb 2023) and lives in [`src/world/healthGuidance.ts`](src/world/healthGuidance.ts). Do not edit, paraphrase, or extend the strings — they're authored from a public health source and changes are not in scope
+- Source attribution link in the footer is mandatory for credibility
+- Cell breakdown section renders only when a cell is selected. Layout is a key/value `<dl>`, not tile grid — at 240px content width tiles are unworkably small
+- Panel is the load-bearing reference for chrome layout. **`PANEL_WIDTH_PX + 16` is the locked left offset for `ZipSearch`** ([`src/components/ui/ZipSearch.tsx`](src/components/ui/ZipSearch.tsx)) — keep them in sync if the panel ever gets wider
+- Selector hooks (`useSelectedCell`, `useSelectedCellMeta`, `useMetroAggregates`, `useSearchedZip`) read primitives off the grid store and `useMemo` over them. Derived values (`cellsByCoord`, `metro`) are computed once in `fetchGrid` and stored as stable references — **NOT** computed in selectors. This is a perf requirement: panel + info card + breadcrumb all consume the same hooks, and selector-side derivation would re-run on every store update and rebuild every consumer
+
+### Top status bar ([`src/components/ui/TopStatusBar.tsx`](src/components/ui/TopStatusBar.tsx))
+- Top-right, `top:16 right:16`. **Portal pattern required** (right-edge compositor) — `createPortal(..., document.body)` + `transform: translateZ(0)` + `isolate` + `zIndex: 2147483000`. Same recipe as `CellInfoCard`. Don't try without and discover the symptom
+- Live indicator (gold pulsing dot) + sensor count + metro PM₂.₅ + UPDATED timestamp
+- **Wind metric is HIDDEN** because `/api/sensors` does not expose wind speed or direction at metro level. To enable: backend must add `wind_speed_mps` and `wind_deg` (or equivalent) to the top-level `/api/sensors` response, then re-add the metric block + leading separator in `TopStatusBar.tsx`. See future-cleanup
+- UPDATED relative-time formatter ticks every 30s via a single `useEffect`+`setInterval` with cleanup — idempotent under StrictMode. The 30s timer triggers re-renders only, never network requests
+- Metro AQI dot uses **6px** (`h-1.5 w-1.5`); panel and info card use **8px** (`h-2 w-2`). The smaller dot in the status bar lets it recede into the metric row's typographic density
+
+### Top nav ([`src/components/ui/TopNav.tsx`](src/components/ui/TopNav.tsx))
+- Top-center, `top-4 left-1/2 -translate-x-1/2 z-20`. Plain absolute positioning — no portal pattern needed (left/center surfaces have stayed visible without it)
+- Four tabs: City overview (active), Street view, Time machine, Route lab — three disabled
+- Active tab uses **gold underline** (`border-b-2 border-gold`) on `bg-ink-800`. Gold = active-state accent, never AQI
+- Disabled tabs use the **accessible-disabled pattern** — `aria-disabled="true"` + `cursor-not-allowed` + `onClick={e => e.preventDefault()}`. NOT native `<button disabled>`, because native disabled silently swallows pointer events on some browsers and tooltips never fire on hover or keyboard focus
+- Tooltip uses both `group-hover:opacity-100` AND `group-focus-within:opacity-100`, so the hint surfaces on either interaction modality
+
+### Breadcrumb footer ([`src/components/ui/BreadcrumbFooter.tsx`](src/components/ui/BreadcrumbFooter.tsx))
+- Full-width, `bottom-0 left-0 right-0 z-10 pointer-events-none`
+- Left side: nav path (`AERIA.ATLAS > DFW > CITY OVERVIEW [> CELL r·c · ZIP zzzzz]`). Right side: build metadata
+- Build metadata: BBOX from [`src/world/bbox.ts`](src/world/bbox.ts), version from `package.json` via JSON import (Vite resolves natively — no `resolveJsonModule` flag needed under `moduleResolution: bundler`)
+- Separator style: ` · ` (dot-bullet, spaced) consistent across both sides; coordinate slashes inside the BBOX chunk are intentional (it's a tuple, not a list)
+- Resolves the cell ZIP only — **typed-zip disclosure is in the info card, not the breadcrumb**. The breadcrumb is ground-truth navigation state, not interaction artifact. Don't extend disclosure here
+
+### Disclosure rule (75025/75023 case)
+- 75025 (zip code) maps to a cell whose reverse-geocoded ZIP is something else (75024 / Plano boundary)
+- The info card discloses the mismatch as `ZIP <resolved> (you typed <searched>)` — fires only when **typed zip ≠ resolved zip**
+- Do **not** extend this to disclose cell-index mismatches — would introduce noise without signal
+- The left panel and breadcrumb show the **resolved zip only** (no parenthetical) — those surfaces are ground-truth navigation state. Disclosure stays in the interaction-driven info card
+
 ## Quirks
 
 ### npm install requires `--legacy-peer-deps`
@@ -155,6 +191,15 @@ inside it to click. Session 3a flipped it to `pointer-events-auto` because
 cells are clickable. Future overlays that float on top of the Canvas must
 either set `pointer-events-none` themselves or rely on z-index — the Canvas
 no longer transparently passes events through to the DOM behind it.
+
+### Floor tint opacity uses a squared confidence curve
+[`src/components/scene/CellFloorTint.tsx`](src/components/scene/CellFloorTint.tsx) maps confidence to opacity via `0.05 + conf² × 0.35`. Real-world confidence clusters between 0.5 and 1.0; the squared curve gives visible separation between high-confidence (downtown, ~0.40 alpha) and low-confidence (south/east edges, ~0.05 alpha) cells. A linear curve compressed everything into the high end and made the signal invisible.
+
+### No red/green/orange/yellow/purple in chrome
+The chrome rule has one legal exception: AQI category dots in the panel, info card, and status bar — the dot's color literally restates the AQI signal. Everywhere else (text, borders, surfaces, tooltips, error states), use stone/gold/teal from the locked palette. Even error states use stone-300, never red.
+
+### 75025/75023 disclosure scope
+Disclosure fires only on **zip mismatch** (typed zip ≠ reverse-geocoded zip), and only in the cell info card. Future engineers might be tempted to extend this to cell-level differences — don't. The breadcrumb and left panel show resolved-zip only; that's the ground-truth navigation state surface.
 
 ### Static instance matrices, no DynamicDrawUsage
 `CellGrid` writes the 900 cell matrices once in `useLayoutEffect` and never
@@ -200,6 +245,45 @@ Items intentionally deferred. Address when the upstream condition is met.
   don't drift the polar angle.
 - **Keyboard shortcut for the search bar** (e.g. `/` to focus the input) is
   unscoped — add when keyboard nav becomes a usability ask.
+- **Cell breakdown — extra stats.** Traffic adjustment, wind adjustment,
+  highway distance from `DESIGN_NOTES.md` are not in the breakdown list.
+  Requires `/api/cells/at` to return per-cell traffic / wind / highway-distance
+  derived metrics. Backend session.
+- **Status bar wind metric.** Currently hidden because `/api/sensors`
+  exposes no wind fields at metro level. To enable: backend adds
+  `wind_speed_mps` + `wind_deg` (or equivalent) to the top-level
+  `/api/sensors` response, then re-add the metric block + leading separator
+  in `TopStatusBar.tsx`. Backend session.
+- **Bottom timeline scrubber** for historical playback (Time Machine view) —
+  Phase 7+, deferred from Session 5.
+- **Cell-vs-metro delta on the panel.** Originally specced as a Δ vs metro
+  line; cut because comparing positive/negative deltas requires color or
+  directional framing that conflicts with the no-red/green chrome rule.
+- **Top chrome row not responsive below 1500px.** At 1366×768 the top nav,
+  status bar, and zip search begin to overlap. Accepted limit for v1
+  (desktop-first); revisit when responsive becomes a real ask.
+- **Low-confidence threshold (0.4) is empirical.** Chosen visually before the
+  ML model lands. Revisit when Phase 4 model produces calibrated
+  confidence distributions.
+- **Backend cache `/api/health` chicken-and-egg.**
+  [`api/routes/health.py`](../api/routes/health.py) reports `cache_warm`
+  based on `_grid_cache["value"] is not None`, but the cache is filled
+  lazily by the first `/api/grid` request — and the frontend's connection
+  store gates that fetch on `cache_warm === true`
+  ([`src/state/connection.ts`](src/state/connection.ts), [`src/App.tsx`](src/App.tsx)).
+  On cold boot the page hangs forever in `'warming'` until something hits
+  `/api/grid` directly. Workaround during dev:
+  `curl http://localhost:8000/api/grid > /dev/null`. Real fix: trigger a
+  warm-up fetch on FastAPI lifespan startup so the cache is populated
+  before the first health probe. Backend session.
+- **Backend `/api/grid` cache instability under load.** Even with
+  `cache_warm: true` reported, the same endpoint has been observed
+  responding in 116ms then 40s on subsequent hits in the same session,
+  suggesting cache eviction. When the cache evicts mid-session, the page
+  silently empties (cells go to default zeros, particles disappear) until a
+  hard refresh re-seeds. Real fix: backend should self-warm on a
+  TTL-aware schedule, or the frontend connection gate should not require
+  `cache_warm` once it's seen `'ready'` at least once. Backend session.
 
 ## CORS contract
 The backend's allowlist is built from two sources:

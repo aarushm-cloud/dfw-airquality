@@ -17,7 +17,7 @@ export function HealthBadge() {
   return (
     <div
       className={[
-        'fixed bottom-3 left-3 z-10 pointer-events-auto',
+        'fixed bottom-10 left-3 z-10 pointer-events-auto',
         'flex items-center gap-2',
         'rounded-sm border border-hairline bg-ink-900/80 backdrop-blur-sm',
         'px-2 py-1',

@@ -178,7 +178,7 @@ export function CellInfoCard() {
 
       <div className="mt-1.5 flex items-center gap-2">
         <span
-          className="inline-block h-1.5 w-1.5 rounded-full"
+          className="inline-block h-2 w-2 rounded-full"
           style={{ backgroundColor: AQI_COLOR[category] }}
         />
         <span className="font-mono uppercase text-[10px] tracking-wider text-stone-300">
