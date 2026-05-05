@@ -51,3 +51,13 @@ export function threeColorForPm25(pm25: number): THREE.Color {
   }
   return c;
 }
+
+export const LOW_CONFIDENCE_THRESHOLD = 0.4;
+
+export type ConfidenceLabel = 'high' | 'moderate' | 'low';
+
+export function confidenceLabel(conf: number): ConfidenceLabel {
+  if (conf >= 0.7) return 'high';
+  if (conf >= LOW_CONFIDENCE_THRESHOLD) return 'moderate';
+  return 'low';
+}

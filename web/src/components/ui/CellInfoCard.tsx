@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 // Mount animation removed: the rAF-driven opacity/translate flip was leaving
 // the card invisible. Add it back later only if it can be done without
 // gating initial visibility on a state flip.
-import { useGrid } from '../../state/grid';
-import { AQI_COLOR, AQI_LABEL, classifyPm25 } from '../../world/aqi';
+import { useGrid, useSelectedCell, useSelectedCellMeta, useSearchedZip } from '../../state/grid';
+import { AQI_COLOR, AQI_LABEL, classifyPm25, LOW_CONFIDENCE_THRESHOLD } from '../../world/aqi';
 
 const ZIP_LOADING_GRACE_MS = 1500;
 
@@ -12,10 +12,12 @@ function ZipLine({
   metaStatus,
   zip,
   loadStartedAt,
+  searchedZip,
 }: {
   metaStatus: 'loading' | 'ready' | 'error';
   zip: string | null;
   loadStartedAt: number;
+  searchedZip: string | null;
 }) {
   // Drives the "—" → "unavailable" fallback at 1500ms when a load drags.
   const [staleAt, setStaleAt] = useState(false);
@@ -33,15 +35,30 @@ function ZipLine({
     return () => window.clearTimeout(t);
   }, [loadStartedAt]);
 
-  let text: string;
+  let body: ReactNode;
   if (metaStatus === 'loading') {
-    text = staleAt ? 'ZIP unavailable' : 'ZIP —';
+    body = staleAt
+      ? <>ZIP <span className="text-stone-500">unavailable</span></>
+      : <>ZIP <span className="text-stone-500">—</span></>;
   } else if (metaStatus === 'ready') {
-    text = zip ? `ZIP ${zip}` : 'ZIP unavailable';
+    if (!zip) {
+      body = <>ZIP <span className="text-stone-500">unavailable</span></>;
+    } else if (searchedZip && searchedZip !== zip) {
+      // Disclosure fires only on zip mismatch (a soft-edge zip mapping to a
+      // neighbor). Cell mismatch is intentionally NOT disclosed — see CONTRACT.
+      body = (
+        <>
+          ZIP <span className="text-stone-300">{zip}</span>
+          <span className="text-stone-500"> (you typed {searchedZip})</span>
+        </>
+      );
+    } else {
+      body = <>ZIP <span className="text-stone-300">{zip}</span></>;
+    }
   } else {
-    text = 'ZIP unavailable';
+    body = <>ZIP <span className="text-stone-500">unavailable</span></>;
   }
-  return <div className="font-mono uppercase text-[12px] text-stone-300">{text}</div>;
+  return <div className="font-mono uppercase text-[12px] text-stone-300">{body}</div>;
 }
 
 function PlaceholderButton({ label, tooltip }: { label: string; tooltip: string }) {
@@ -80,14 +97,10 @@ function PlaceholderButton({ label, tooltip }: { label: string; tooltip: string 
 export function CellInfoCard() {
   const selectedCellRow = useGrid((s) => s.selectedCellRow);
   const selectedCellCol = useGrid((s) => s.selectedCellCol);
-  const selectedCellMeta = useGrid((s) => s.selectedCellMeta);
-  const cells = useGrid((s) => s.cells);
+  const selectedCellMeta = useSelectedCellMeta();
+  const cell = useSelectedCell();
+  const searchedZip = useSearchedZip();
   const clearSelection = useGrid((s) => s.clearSelection);
-
-  const cell = useMemo(() => {
-    if (selectedCellRow === null || selectedCellCol === null) return null;
-    return cells.find((c) => c.row === selectedCellRow && c.col === selectedCellCol) ?? null;
-  }, [cells, selectedCellRow, selectedCellCol]);
 
   // Reset the zip-loading timer whenever the selection changes.
   const loadStartedAt = useMemo(() => performance.now(), [selectedCellRow, selectedCellCol]);
@@ -98,6 +111,7 @@ export function CellInfoCard() {
   const category = classifyPm25(pm25);
   const lat = cell?.centerLat ?? 0;
   const lon = cell?.centerLon ?? 0;
+  const conf = cell?.confidenceMin ?? 1;
   const meta = selectedCellMeta ?? {
     zip: null,
     neighborhood: null,
@@ -127,7 +141,12 @@ export function CellInfoCard() {
     >
       <div className="flex items-start justify-between">
         <div>
-          <ZipLine metaStatus={meta.metaStatus} zip={meta.zip} loadStartedAt={loadStartedAt} />
+          <ZipLine
+            metaStatus={meta.metaStatus}
+            zip={meta.zip}
+            loadStartedAt={loadStartedAt}
+            searchedZip={searchedZip}
+          />
           <div className="font-mono uppercase text-[11px] tracking-wider text-stone-500 mt-0.5">
             Cell {selectedCellRow}·{selectedCellCol}
           </div>
@@ -150,6 +169,12 @@ export function CellInfoCard() {
           µg/m³
         </span>
       </div>
+
+      {conf < LOW_CONFIDENCE_THRESHOLD && (
+        <div className="font-mono text-[9px] uppercase text-stone-500 mt-1">
+          · LOW CONFIDENCE · MAY BE UNRELIABLE
+        </div>
+      )}
 
       <div className="mt-1.5 flex items-center gap-2">
         <span

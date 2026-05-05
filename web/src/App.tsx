@@ -3,6 +3,7 @@ import { Scene } from './components/Scene';
 import { HealthBadge } from './components/HealthBadge';
 import { ZipSearch } from './components/ui/ZipSearch';
 import { CellInfoCard } from './components/ui/CellInfoCard';
+import { LeftPanel } from './components/ui/LeftPanel';
 import { useConnection } from './state/connection';
 import { useGrid } from './state/grid';
 
@@ -47,6 +48,7 @@ function App() {
   return (
     <>
       <Scene />
+      <LeftPanel />
       <ZipSearch />
       <CellInfoCard />
       <HealthBadge />

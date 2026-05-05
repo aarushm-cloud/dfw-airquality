@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import {
   getGrid,
@@ -13,6 +14,7 @@ import {
   GRID_SIZE,
   SOURCE_GRID_SIZE,
 } from '../world/bbox';
+import { classifyPm25, type AqiCategory } from '../world/aqi';
 import { useSceneStore } from './scene';
 import { panCameraTo } from '../components/scene/cameraPan';
 
@@ -42,10 +44,20 @@ export type SelectedCellMeta = {
   metaStatus: 'loading' | 'ready' | 'error';
 };
 
+export type MetroAggregates = {
+  pm25Mean: number;
+  pm25Max: number;
+  confidenceMean: number;
+  category: AqiCategory;
+};
+
 type GridState = {
   status: GridStatus;
   raw: GridData | null;
   cells: CellSummary[];
+  cellsByCoord: Map<string, CellSummary>;
+  metro: MetroAggregates | null;
+  searchedZip: string | null;
 
   selectedCellRow: number | null;
   selectedCellCol: number | null;
@@ -54,7 +66,13 @@ type GridState = {
   fetchGrid: () => Promise<void>;
   // pan defaults to false — most selection paths (click, future pin) shouldn't
   // move the camera. Explicit-search paths opt in by passing { pan: true }.
-  selectCellByCoord: (row: number, col: number, opts?: { pan?: boolean }) => Promise<void>;
+  // fromZipSearch defaults to false; when true, the click-clearing of
+  // searchedZip is skipped so selectCellByZip can stash the typed zip.
+  selectCellByCoord: (
+    row: number,
+    col: number,
+    opts?: { pan?: boolean; fromZipSearch?: boolean },
+  ) => Promise<void>;
   selectCellByZip: (zip: string) => Promise<void>;
   clearSelection: () => void;
 };
@@ -131,6 +149,9 @@ export const useGrid = create<GridState>((set, get) => ({
   status: 'idle',
   raw: null,
   cells: [],
+  cellsByCoord: new Map(),
+  metro: null,
+  searchedZip: null,
   selectedCellRow: null,
   selectedCellCol: null,
   selectedCellMeta: null,
@@ -141,6 +162,22 @@ export const useGrid = create<GridState>((set, get) => ({
       const data = await getGrid();
       validatePayload(data);
       const cells = aggregateCells(data);
+
+      const cellsByCoord = new Map(
+        cells.map((c) => [`${c.row},${c.col}`, c]),
+      );
+
+      const n = cells.length;
+      const pm25Mean = cells.reduce((s, c) => s + c.pm25Mean, 0) / n;
+      const pm25Max = cells.reduce((m, c) => Math.max(m, c.pm25Max), -Infinity);
+      const confidenceMean = cells.reduce((s, c) => s + c.confidenceMin, 0) / n;
+      const metro: MetroAggregates = {
+        pm25Mean,
+        pm25Max,
+        confidenceMean,
+        category: classifyPm25(pm25Mean),
+      };
+
       set({
         status: 'ready',
         raw: {
@@ -151,6 +188,8 @@ export const useGrid = create<GridState>((set, get) => ({
           generatedAt: data.timestamp ?? data.generated_at ?? '',
         },
         cells,
+        cellsByCoord,
+        metro,
       });
     } catch (err) {
       console.error('[grid] fetch failed:', err);
@@ -161,6 +200,11 @@ export const useGrid = create<GridState>((set, get) => ({
   selectCellByCoord: async (row, col, opts) => {
     const token = ++_selectionToken;
     const pan = opts?.pan ?? false;
+    const fromZipSearch = opts?.fromZipSearch ?? false;
+
+    if (!fromZipSearch) {
+      set({ searchedZip: null });
+    }
 
     set({
       selectedCellRow: row,
@@ -168,7 +212,7 @@ export const useGrid = create<GridState>((set, get) => ({
       selectedCellMeta: { zip: null, neighborhood: null, metaStatus: 'loading' },
     });
 
-    const cell = get().cells.find((c) => c.row === row && c.col === col);
+    const cell = get().cellsByCoord.get(`${row},${col}`);
     if (pan) {
       const { controls, camera } = useSceneStore.getState();
       if (controls && camera && cell) {
@@ -202,10 +246,14 @@ export const useGrid = create<GridState>((set, get) => ({
   },
 
   selectCellByZip: async (zip) => {
+    set({ searchedZip: zip });
     const result = await getCellByZip(zip);
     const cellCoord = latLonToCell({ lat: result.lat, lon: result.lon });
     if (!cellCoord) throw new ZipNotCoveredError(zip);
-    await get().selectCellByCoord(cellCoord.row, cellCoord.col, { pan: true });
+    await get().selectCellByCoord(cellCoord.row, cellCoord.col, {
+      pan: true,
+      fromZipSearch: true,
+    });
   },
 
   clearSelection: () => {
@@ -214,6 +262,32 @@ export const useGrid = create<GridState>((set, get) => ({
       selectedCellRow: null,
       selectedCellCol: null,
       selectedCellMeta: null,
+      searchedZip: null,
     });
   },
 }));
+
+// Selector hooks. Each reads a primitive (or stable reference) from the store
+// and useMemo's the derivation. Multiple consumers that call useSelectedCell
+// share the same cached object, so panel + info card + breadcrumb don't all
+// rebuild on unrelated store updates.
+export const useSelectedCell = () => {
+  const row = useGrid((s) => s.selectedCellRow);
+  const col = useGrid((s) => s.selectedCellCol);
+  const map = useGrid((s) => s.cellsByCoord);
+  return useMemo(() => {
+    if (row === null || col === null) return null;
+    return map.get(`${row},${col}`) ?? null;
+  }, [row, col, map]);
+};
+
+export const useSelectedCellMeta = () => useGrid((s) => s.selectedCellMeta);
+
+export const useSelectedCategory = () => {
+  const cell = useSelectedCell();
+  return cell ? classifyPm25(cell.pm25Mean) : null;
+};
+
+export const useMetroAggregates = () => useGrid((s) => s.metro);
+
+export const useSearchedZip = () => useGrid((s) => s.searchedZip);

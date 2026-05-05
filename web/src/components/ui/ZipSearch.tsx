@@ -59,7 +59,8 @@ export function ZipSearch() {
     <form
       onSubmit={onSubmit}
       className={[
-        'fixed top-40 left-4 z-20 pointer-events-auto',
+        // left offset stays in sync with LeftPanel.PANEL_WIDTH_PX (280) + 16px gap.
+        'fixed top-40 left-[296px] z-20 pointer-events-auto',
         'bg-ink-900/85 backdrop-blur-sm',
         'border border-hairline rounded-sm',
         'p-3',
