@@ -16,6 +16,7 @@ import {
 } from '../world/bbox';
 import { classifyPm25, type AqiCategory } from '../world/aqi';
 import { useSceneStore } from './scene';
+import { useViewStore } from './view';
 import { panCameraTo } from '../components/scene/cameraPan';
 
 export type GridStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -213,7 +214,10 @@ export const useGrid = create<GridState>((set, get) => ({
     });
 
     const cell = get().cellsByCoord.get(`${row},${col}`);
-    if (pan) {
+    // Gate the pan side effect on view. Selection still propagates everywhere
+    // (panel, breadcrumb, placeholder); only the visual camera move is
+    // suppressed when not in city view, since the city camera isn't mounted.
+    if (pan && useViewStore.getState().view === 'city') {
       const { controls, camera } = useSceneStore.getState();
       if (controls && camera && cell) {
         const world = cellToWorld({ row, col });
