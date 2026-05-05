@@ -1,4 +1,5 @@
 import { useGrid, useSelectedCellMeta } from '../../state/grid';
+import { useViewStore } from '../../state/view';
 import { BBOX } from '../../world/bbox';
 // Vite supports JSON imports natively. tsconfig "moduleResolution: bundler"
 // resolves them without needing resolveJsonModule.
@@ -12,6 +13,7 @@ export function BreadcrumbFooter() {
   const row = useGrid((s) => s.selectedCellRow);
   const col = useGrid((s) => s.selectedCellCol);
   const meta = useSelectedCellMeta();
+  const view = useViewStore((s) => s.view);
 
   const hasCell = row !== null && col !== null;
   const resolvedZip = meta?.zip ?? null;
@@ -23,11 +25,13 @@ export function BreadcrumbFooter() {
         ? `ZIP ${resolvedZip}`
         : 'ZIP —';
 
+  const viewSegment = view === 'street' ? 'STREET VIEW' : 'CITY OVERVIEW';
+
   // Resolved zip only — typed-zip disclosure stays in the info card.
   // The breadcrumb is ground-truth navigation state, not interaction artifact.
   const navPath = hasCell
-    ? `AERIA.ATLAS > DFW > CITY OVERVIEW > CELL ${row}·${col} · ${zipChunk}`
-    : 'AERIA.ATLAS > DFW > CITY OVERVIEW';
+    ? `AERIA.ATLAS > DFW > ${viewSegment} > CELL ${row}·${col} · ${zipChunk}`
+    : `AERIA.ATLAS > DFW > ${viewSegment}`;
 
   return (
     <footer

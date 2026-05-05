@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 // the card invisible. Add it back later only if it can be done without
 // gating initial visibility on a state flip.
 import { useGrid, useSelectedCell, useSelectedCellMeta, useSearchedZip } from '../../state/grid';
+import { useViewStore } from '../../state/view';
 import { AQI_COLOR, AQI_LABEL, classifyPm25, LOW_CONFIDENCE_THRESHOLD } from '../../world/aqi';
 
 const ZIP_LOADING_GRACE_MS = 1500;
@@ -94,6 +95,26 @@ function PlaceholderButton({ label, tooltip }: { label: string; tooltip: string 
   );
 }
 
+function DropIntoStreetButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'flex-1 px-3 py-2',
+        'border border-gold/60 rounded-sm',
+        'text-gold font-mono uppercase text-[10px] tracking-wider',
+        'cursor-pointer',
+        'hover:bg-gold/10 hover:border-gold',
+        'focus:outline-none focus:border-gold',
+        'transition-colors',
+      ].join(' ')}
+    >
+      Drop into street
+    </button>
+  );
+}
+
 export function CellInfoCard() {
   const selectedCellRow = useGrid((s) => s.selectedCellRow);
   const selectedCellCol = useGrid((s) => s.selectedCellCol);
@@ -101,11 +122,17 @@ export function CellInfoCard() {
   const cell = useSelectedCell();
   const searchedZip = useSearchedZip();
   const clearSelection = useGrid((s) => s.clearSelection);
+  const view = useViewStore((s) => s.view);
+  const setView = useViewStore((s) => s.setView);
 
   // Reset the zip-loading timer whenever the selection changes.
   const loadStartedAt = useMemo(() => performance.now(), [selectedCellRow, selectedCellCol]);
 
   if (selectedCellRow === null || selectedCellCol === null) return null;
+  // Selection in useGrid is independent of view — it stays set while we're in
+  // street view, so the panel keeps showing guidance for the selected cell.
+  // Only the info card is hidden.
+  if (view === 'street') return null;
 
   const pm25 = cell?.pm25Mean ?? 0;
   const category = classifyPm25(pm25);
@@ -191,7 +218,7 @@ export function CellInfoCard() {
       </div>
 
       <div className="mt-3 flex flex-col gap-2">
-        <PlaceholderButton label="Drop into street" tooltip="Available in Session 6" />
+        <DropIntoStreetButton onClick={() => setView('street')} />
         <PlaceholderButton label="Pin" tooltip="Coming soon" />
       </div>
     </div>,

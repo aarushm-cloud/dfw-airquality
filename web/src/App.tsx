@@ -10,6 +10,7 @@ import { BreadcrumbFooter } from './components/ui/BreadcrumbFooter';
 import { useConnection } from './state/connection';
 import { useGrid } from './state/grid';
 import { useSensorsStore } from './state/sensors';
+import { useViewStore } from './state/view';
 
 const HEALTH_POLL_INTERVAL_MS = 5_000;
 
@@ -56,7 +57,28 @@ function App() {
       connection: useConnection,
       grid: useGrid,
       sensors: useSensorsStore,
+      view: useViewStore,
     };
+  }, []);
+
+  // ESC exits street view. Bail out if focus is in an editable element so a
+  // first ESC inside the zip search clears the input (input-level), and a
+  // second ESC after blur exits the view. Matches every other web app.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const isEditable =
+        tag === 'input' ||
+        tag === 'textarea' ||
+        target?.isContentEditable === true;
+      if (isEditable) return;
+      if (e.key === 'Escape' && useViewStore.getState().view === 'street') {
+        useViewStore.getState().setView('city');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
   return (

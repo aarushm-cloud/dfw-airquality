@@ -1,3 +1,5 @@
+import { useViewStore } from '../../state/view';
+
 type Tab = {
   key: 'city' | 'street' | 'time' | 'route';
   label: string;
@@ -7,24 +9,26 @@ type Tab = {
 
 const TABS: readonly Tab[] = [
   { key: 'city',   label: 'City overview', enabled: true,  tooltip: null },
-  { key: 'street', label: 'Street view',   enabled: false, tooltip: 'Available in Session 6' },
+  { key: 'street', label: 'Street view',   enabled: true,  tooltip: null },
   { key: 'time',   label: 'Time machine',  enabled: false, tooltip: 'Historical playback — coming soon' },
   { key: 'route',  label: 'Route lab',     enabled: false, tooltip: 'Cleanest path optimizer — coming soon' },
 ] as const;
 
-function TabButton({ tab }: { tab: Tab }) {
+function TabButton({ tab, active, onClick }: { tab: Tab; active: boolean; onClick: () => void }) {
   if (tab.enabled) {
     return (
       <button
         type="button"
+        onClick={onClick}
         className={[
           'relative px-3 py-1.5',
-          'bg-ink-800',
-          'border-b-2 border-gold',
-          'font-sans text-[11px] text-stone-200',
+          active ? 'bg-ink-800 border-b-2 border-gold' : 'border-b-2 border-transparent',
+          'font-sans text-[11px]',
+          active ? 'text-stone-200' : 'text-stone-400 hover:text-stone-200',
           'rounded-sm',
-          'cursor-default',
+          'cursor-pointer',
           'focus:outline-none',
+          'transition-colors',
         ].join(' ')}
       >
         {tab.label}
@@ -68,6 +72,9 @@ function TabButton({ tab }: { tab: Tab }) {
 }
 
 export function TopNav() {
+  const view = useViewStore((s) => s.view);
+  const setView = useViewStore((s) => s.setView);
+
   return (
     <nav
       aria-label="View"
@@ -79,7 +86,14 @@ export function TopNav() {
       ].join(' ')}
     >
       {TABS.map((tab) => (
-        <TabButton key={tab.key} tab={tab} />
+        <TabButton
+          key={tab.key}
+          tab={tab}
+          active={tab.key === view}
+          onClick={() => {
+            if (tab.key === 'city' || tab.key === 'street') setView(tab.key);
+          }}
+        />
       ))}
     </nav>
   );
