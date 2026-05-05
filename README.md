@@ -59,8 +59,24 @@ dfw-airquality/
 │   └── collector.py        # Headless live snapshot collector (cron/background)
 ├── viz/
 │   └── heatmap.py          # Folium map: raster overlay, sensor dots, popups, legend
-├── api/                    # FastAPI backend wrapping engine/, data/, config.py
-└── web/                    # Vite + React + TypeScript + R3F frontend
+├── api/                              # FastAPI backend wrapping engine/, data/, config.py
+│   ├── main.py
+│   ├── routes/
+│   │   ├── health.py                 # /health — backend liveness
+│   │   ├── sensors.py                # /sensors — live PurpleAir + OpenAQ readings
+│   │   ├── grid.py                   # /grid — interpolated 200×200 PM₂.₅ grid
+│   │   └── cells.py                  # /cells/{id} — per-cell breakdown + attribution
+│   └── schemas/                      # Pydantic response models
+└── web/                              # Vite + React + TypeScript + R3F frontend (AERIA)
+    ├── src/
+    │   ├── App.tsx
+    │   ├── api/client.ts             # Typed fetch layer for FastAPI
+    │   ├── state/                    # Zustand stores (sensors, grid, scene, view, connection)
+    │   ├── world/                    # Pure helpers: AQI, bbox math, building generation, health guidance
+    │   └── components/
+    │       ├── scene/                # R3F: CityScene, StreetScene, CellGrid, Buildings, Particles
+    │       └── ui/                   # TopNav, TopStatusBar, LeftPanel, CellInfoCard, ZipSearch
+    └── docs/                         # Session screenshots / design references
 ```
 
 ---
@@ -91,6 +107,30 @@ All free tier. No credit card required.
 **Modeling:** A Random Forest pipeline was built and validated over 180 days of PurpleAir history (68,407 rows, 19 sensors). Two approaches were evaluated — raw PM₂.₅ prediction and IDW residual correction. Neither outperformed the IDW + adjust_grid baseline on RMSE (2.48 µg/m³ vs 2.91 for the RF residual model), so the dashboard ships with the deterministic baseline. Training infrastructure and spatial features (highway distance via OSMnx) are retained for future iterations. Full writeup in [`ml/docs/`](ml/docs/).
 
 **Rendering:** Final grid is Gaussian-smoothed and rendered as a PNG raster (ImageOverlay). Click popups use a sparse 30×30 transparent rectangle grid subsampled from the full 200×200 grid.
+
+---
+
+## AERIA — 3D Web Dashboard
+
+The custom frontend (`web/`) is the primary interface. It replaces the Folium/Streamlit map with a stylized 3D scene built in React Three Fiber, backed by a FastAPI service (`api/`) that wraps the existing Python engine as JSON endpoints.
+
+**Two primary views**
+- **City overview** — top-down isometric scene of the DFW bounding box with a clickable cell grid, generated buildings, and PM₂.₅-driven particle ambience. Hovering surfaces a cell info card; clicking selects the cell and updates the side panel.
+- **Street view** — first-person ground-level scene the user drops into when they pick a cell. The geometry is reusable; only the air-quality state changes per cell.
+
+**Persistent left panel** — AQI category, current PM₂.₅ reading with 24h delta and attribution line ("EPA-corrected · IDW from N nearby sensors"), AQI-driven health guidance for sensitive groups and the general public, activity guidance (outdoor exercise, windows, masks), and a per-cell breakdown (traffic adjustment, wind adjustment, highway distance, last updated).
+
+**Top status bar** — live indicator with sensor count, network-average PM₂.₅, wind speed and direction, and an "updated N min ago" timestamp.
+
+**ZIP search** — jump the camera and selection straight to any DFW ZIP.
+
+### In progress / roadmap
+
+- **Time machine tab** — historical playback over the accumulated `dashboard_snapshots.csv`
+- **Route lab tab** — cleanest-path optimizer wired to `engine/router.py`
+- **Live sensor pulses** — animated dots on the city scene driven by real PurpleAir update events
+- **Backend deploy** — Render free tier for `api/`, Vercel for `web/` (currently runs locally via `dev.sh`)
+- **Streamlit retirement** — the Streamlit app stays online until AERIA reaches feature parity, then gets removed
 
 ---
 
