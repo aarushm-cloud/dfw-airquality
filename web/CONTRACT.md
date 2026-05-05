@@ -162,6 +162,32 @@ DOM-side UI components live in `src/components/ui/`. R3F scene components live i
 - Do **not** extend this to disclose cell-index mismatches — would introduce noise without signal
 - The left panel and breadcrumb show the **resolved zip only** (no parenthetical) — those surfaces are ground-truth navigation state. Disclosure stays in the interaction-driven info card
 
+## View routing
+
+- Two views: `'city'` (default) and `'street'`. Future tabs: `'time'`, `'route'`
+- View state lives in [`src/state/view.ts`](src/state/view.ts) (`useViewStore`). Routing is its own domain so future tabs extend without touching grid or scene state
+- [`TopNav`](src/components/ui/TopNav.tsx) reads `view` and click handlers call `setView('city' | 'street')`. Disabled tabs (`time`, `route`) keep the accessible-disabled pattern (`aria-disabled="true"` + tooltip on hover/focus); enabled tabs route via `setView`
+- ESC key exits street → city. Global `window` `keydown` handler in [`src/App.tsx`](src/App.tsx). It only fires when `view === 'street'` AND focus is **not** inside an input/textarea/contenteditable — so a first ESC inside the zip search clears the input (input-level), and a second ESC after blur exits the view
+- [`CellInfoCard`](src/components/ui/CellInfoCard.tsx) returns `null` when `view === 'street'`. Selection itself is unaffected — the card hides but the cell stays selected so the panel keeps showing guidance
+- [`BreadcrumbFooter`](src/components/ui/BreadcrumbFooter.tsx) segment is view-driven (`'CITY OVERVIEW'` / `'STREET VIEW'`); cell + zip segments downstream are unchanged
+- The Pin button on `CellInfoCard` remains placeholder (see Future cleanup)
+- `selectCellByCoord` and `selectCellByZip` skip the `panCameraTo` side effect when `view !== 'city'`. **Selection still updates everywhere** (panel, breadcrumb, placeholder text); only the visual camera move is suppressed. The gate is one `useViewStore.getState()` read inside `selectCellByCoord` — minimal cross-store coupling, and it lives at the side-effect boundary, not the state boundary
+
+## Camera state preservation
+
+- City camera snapshot lives in [`useSceneStore.cityCameraSnapshot`](src/state/scene.ts) (position, target, zoom)
+- [`CityScene`](src/components/scene/CityScene.tsx) mount effect calls `restoreCityCamera()` **synchronously** after `registerControls`. No `requestAnimationFrame`, no `useLayoutEffect` deferral. Synchronous works because Zustand `set` is synchronous, so reading the store back in the next line sees the new controls handle. Synchronous restore happens before the first paint, eliminating the one-frame "flash of city geometry rendered through the street camera position" that any deferred restore would produce
+- `CityScene`'s unmount cleanup calls `snapshotCityCamera()` **before** clearing the controls handle via `registerControls(null, null)`. **Order matters** — clearing first means the snapshot reads `null` controls and stores nothing
+- [`StreetScene`](src/components/scene/StreetScene.tsx) does **not** preserve camera state. Every entry resets to a fixed pose (position `[0, 1.6, 5]`, target `[0, 1.6, 0]`). Per-cell pose is Session 6's call
+- This pattern relies on a single `<Canvas>` with a single active camera. If a future session introduces a second `<Canvas>`, snapshot/restore needs revisiting
+
+## Scene tree
+
+- Single `<Canvas>` at the top, mounted in [`src/components/Scene.tsx`](src/components/Scene.tsx)
+- [`SceneRoot`](src/components/scene/SceneRoot.tsx) holds **view-agnostic** infrastructure: background color, fog. Anything that should look the same across views lives here so the transition inherits it for free
+- [`CityScene`](src/components/scene/CityScene.tsx) and [`StreetScene`](src/components/scene/StreetScene.tsx) mount conditionally based on `useViewStore`. Each owns its own lighting, camera, OrbitControls, and registers/unregisters with `useSceneStore` on mount/unmount
+- The unmount cleanup is critical — see Camera state preservation. Without it, HMR or a scene remount can leave a stale OrbitControls instance pointing at a destroyed camera, which crashes the next pan
+
 ## Quirks
 
 ### npm install requires `--legacy-peer-deps`
@@ -207,6 +233,29 @@ mutates them; the default static draw usage is correct. Sessions that add
 *moving* instances (e.g. Session 3c particles) must explicitly call
 `instanceMatrix.setUsage(THREE.DynamicDrawUsage)` on their own meshes — do
 not change the default for `CellGrid`.
+
+### ESC handler bails out inside editable elements
+The global ESC handler in [`App.tsx`](src/App.tsx) early-returns when focus
+is in an `<input>`, `<textarea>`, or contenteditable element so first-ESC
+inside the zip search clears the input (input-level) and second-ESC after
+blur exits street view. If a future input adds its own ESC handler that
+calls both `preventDefault()` and `stopPropagation()`, the global exit will
+be blocked for that input — document the input if so.
+
+### TopNav `'street'` key matches the view-store value verbatim
+Tab keys in [`TopNav.tsx`](src/components/ui/TopNav.tsx) (`'city' | 'street' | 'time' | 'route'`)
+double as the click-handler argument passed to
+[`useViewStore.setView`](src/state/view.ts). If either side renames a key,
+both must rename in lockstep — otherwise the click will silently no-op
+(currently filtered to `city`/`street` only).
+
+### `panCameraTo` is unsafe to call when `view !== 'city'`
+The registered camera in `useSceneStore` is whichever view's camera is
+mounted. Calling [`panCameraTo`](src/components/scene/cameraPan.ts) against
+a street-view camera lerps it toward a city-bbox world position — meaningless
+and visually broken. The gate lives in `selectCellByCoord` and (via
+delegation) `selectCellByZip`. New call sites of `panCameraTo` must add
+their own gate or route through the gated grid actions.
 
 ## Future cleanup
 
@@ -284,6 +333,23 @@ Items intentionally deferred. Address when the upstream condition is met.
   hard refresh re-seeds. Real fix: backend should self-warm on a
   TTL-aware schedule, or the frontend connection gate should not require
   `cache_warm` once it's seen `'ready'` at least once. Backend session.
+- **`StreetScene` is a placeholder.** Session 6 owns scene atmosphere,
+  building generation, particles, lighting tuning, and any city→street
+  transition (fade, fly-down, etc.). The current scene is a void with
+  centered text reading the cell metadata; it exists only to prove view
+  routing works end-to-end.
+- **Pin button on `CellInfoCard` remains placeholder.** Will need a
+  pinned-cells store + persistence. Tooltip currently reads "Coming soon".
+- **No URL sync for view routing.** View state is in-memory only — no
+  query-param or hash-based deep linking to street view of a cell. Add
+  if/when shareable links become a real ask.
+- **City camera state is in-memory only.** Survives view round trips within
+  a session but is lost on hard reload. Acceptable for v1; revisit if
+  per-user pose persistence is wanted (localStorage is the obvious move).
+- **Single-Canvas single-camera assumption.** Camera snapshot/restore
+  pattern in `useSceneStore` assumes one active camera registered at a
+  time. If a future session introduces a second `<Canvas>` (e.g. for a
+  minimap), the snapshot/restore needs revisiting.
 
 ## CORS contract
 The backend's allowlist is built from two sources:
