@@ -126,7 +126,7 @@ export function CellInfoCard() {
       style={{
         position: 'fixed',
         top: '180px',
-        right: '340px',
+        right: '250px',
         zIndex: 2147483000,
         transform: 'translateZ(0)',
         width: '180px',

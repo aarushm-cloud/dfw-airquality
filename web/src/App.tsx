@@ -5,6 +5,7 @@ import { ZipSearch } from './components/ui/ZipSearch';
 import { CellInfoCard } from './components/ui/CellInfoCard';
 import { LeftPanel } from './components/ui/LeftPanel';
 import { TopStatusBar } from './components/ui/TopStatusBar';
+import { TopNav } from './components/ui/TopNav';
 import { useConnection } from './state/connection';
 import { useGrid } from './state/grid';
 import { useSensorsStore } from './state/sensors';
@@ -62,6 +63,7 @@ function App() {
       <Scene />
       <LeftPanel />
       <TopStatusBar />
+      <TopNav />
       <ZipSearch />
       <CellInfoCard />
       <HealthBadge />
