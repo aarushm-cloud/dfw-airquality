@@ -14,18 +14,17 @@ export function CityScene() {
 
   // Publish handles for DOM-side panners. On mount, restore any previously
   // captured snapshot synchronously so the first paint is at the saved pose
-  // (avoids a one-frame flash). On unmount, snapshot BEFORE clearing the
-  // handles — order matters; clearing first leaves snapshot nothing to read.
+  // (avoids a one-frame flash). The snapshot itself is captured by
+  // useViewStore.setView at the city→street transition boundary — NOT here
+  // on unmount — so React StrictMode's effect double-invoke can't cache the
+  // R3F default camera before <PerspectiveCamera makeDefault> takes effect.
   useEffect(() => {
     if (!controlsRef.current) return;
     registerControls(controlsRef.current, camera);
     if (useSceneStore.getState().cityCameraSnapshot) {
       useSceneStore.getState().restoreCityCamera();
     }
-    return () => {
-      useSceneStore.getState().snapshotCityCamera();
-      registerControls(null, null);
-    };
+    return () => registerControls(null, null);
   }, [camera, registerControls]);
 
   return (
