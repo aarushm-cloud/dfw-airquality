@@ -4,15 +4,6 @@ DFW Air Quality fuses live PM₂.₅ readings from public sensor networks with r
 
 Public air quality tools surface point-sensor readings or county-level averages. Neither captures the spatial variation that matters at a pedestrian or cyclist scale, where proximity to a congested corridor or downwind position from an emitter can shift PM₂.₅ exposure by an order of magnitude over a few hundred meters. This project closes that gap with an interpolated, traffic- and wind-corrected grid resolved to the block level.
 
-![City overview](web/docs/session-5/selected.png)
-*The 3D dashboard with a clickable PM₂.₅ cell grid over the Dallas–Fort Worth bounding box and a selected cell's per-cell breakdown in the side panel.*
-
-![Street view at moderate AQI](web/docs/session-6/final/street-moderate.png)
-*First-person street-level scene at moderate AQI. Particle density and tint are driven by the selected cell's PM₂.₅ reading.*
-
-![Street view at unhealthy AQI](web/docs/session-6/final/street-unhealthy.png)
-*The same street-level geometry under an unhealthy AQI tier — visual contrast across exposure conditions.*
-
 ---
 
 ## What it does
