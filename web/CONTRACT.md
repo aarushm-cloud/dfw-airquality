@@ -188,6 +188,51 @@ DOM-side UI components live in `src/components/ui/`. R3F scene components live i
 - [`CityScene`](src/components/scene/CityScene.tsx) and [`StreetScene`](src/components/scene/StreetScene.tsx) mount conditionally based on `useViewStore`. Each owns its own lighting, camera, OrbitControls, and registers/unregisters with `useSceneStore` on mount/unmount
 - The unmount cleanup is critical — see Camera state preservation. Without it, HMR or a scene remount can leave a stale OrbitControls instance pointing at a destroyed camera, which crashes the next pan
 
+## Street scene composition
+
+[`StreetScene`](src/components/scene/StreetScene.tsx) is a first-person dusk scene shared across all 900 cells. Buildings, lighting, and camera are AQI-agnostic — only the particle layer reacts to cell selection.
+
+### Buildings ([`src/world/streetBuildings.ts`](src/world/streetBuildings.ts))
+- Procedural placement along two rows on either side of a street running through the camera Z axis (camera at `[0, 1.6, 5]` looking at `[0, 1.8, 0]`).
+- **Deterministic seed: `mulberry32(42)`.** Same buildings every mount, every cell change, every reload. Searching a different zip in street view does NOT shuffle them.
+- Two Z segments with a vista buffer in between: `[12, 8]` (a few buildings behind the camera, visible if the user rotates around) and `[-4, -56]` (the long line of buildings down the street). Closest in-front building lands ~10 units from camera so the user gets a clear sightline instead of a slab.
+- ~33 buildings total (target 30–80 from the session prompt). Heights 4–18 world units, widths 3–8, depths 1.8–4.4. Street half-width is 6 + 1.5 sidewalk so facades sit ~7.5 units off-centerline.
+- **Drei `<Instances>`** is correct here because count is fixed at mount and there's no dynamic mutation. Particles use raw `<instancedMesh>` (different reason, see below).
+- `MeshStandardMaterial` with `roughness: 0.92`, `metalness: 0`, `flatShading: true` and per-instance grey color jitter (shade factor 0.78–1.12 around base `rgb(122, 116, 128)`). Flat shading is intentional — smooth boxes look like polished plastic.
+- No windows, signage, vehicles, or per-cell variation. Particles do all the AQI work.
+
+### Particles ([`src/components/scene/StreetParticles.tsx`](src/components/scene/StreetParticles.tsx))
+- **Implementation: raw `<instancedMesh>`** of low-poly spheres (sphereGeometry `[1, 6, 4]`, scaled to 0.075). NOT Drei `<Instances>` — Drei's component-driven API doesn't fit dynamic-count, and the prompt explicitly forbids it for this layer.
+- **Allocation: Option A — `MAX_PARTICLES = 3000` slots allocated up front.** `mesh.count` is mutated per AQI change; three.js's renderer respects it and only draws that many. No allocation churn, no pop on cell change.
+- **Color: `AQI_COLOR[useSelectedCategory()]`.** Single material color per draw — all visible particles share one hue at a time. No parallel palette.
+- **Density curve:** `count = clamp(50 + pm25 * 30, 50, 3000)`. Good (pm25 ~ 8) ≈ 290; Moderate (~25) ≈ 800; Sensitive (~45) ≈ 1400; Unhealthy (~100) → cap. Very Unhealthy / Hazardous saturate at the cap. Curve is empirical — if changed, screenshots in `web/docs/session-6/` go stale.
+- **Volumetric distribution:** XZ disc of radius 13 around the street centre (anchored in world space, not following the camera, so the user looks *through* atmospheric haze). Y range 0.4–3.2 world units (eye-level ± a bit).
+- **Motion:** sinusoidal drift via `useFrame` with per-particle phase + speed seeds. Amplitude ±0.18 vertical, ±0.12 horizontal, ±0.12 forward — gentle, not turbulent. `instanceMatrix.setUsage(THREE.DynamicDrawUsage)` is set explicitly per the existing CONTRACT note about moving instances.
+- **No-cell state:** `mesh.count = 0` (mesh stays mounted, draws nothing) + DOM overlay (see [`StreetEmptyState`](src/components/ui/StreetEmptyState.tsx)) — Drei `<Text>` is forbidden for this guidance string because it's 3D geometry, not screen-reader accessible.
+
+### Lighting
+- **Directional sun:** position `[12, 6, -8]`, color `#ffb066` (gold-orange, source-side hotter to compensate for ACES desaturation), intensity 1.1. Low elevation matches "warm gold accents" from DESIGN_NOTES.
+- **Hemisphere:** sky `#5a3f6e` (deep dusk magenta-blue), ground `#2a2230` (warmer floor), intensity 0.55. Fill, not key.
+- **Ambient:** `#2a2438`, intensity 0.18 — just enough to keep shadows from going pure black.
+- **Fog:** `['#0a0a0f', 10, 48]`, attached inside StreetScene via `<fog attach="fog">`. Replaces SceneRoot's city-distance fog while StreetScene is mounted; R3F's attach mechanism restores the previous fog on unmount.
+- **No shadow casters.** 512px default would look chunky; 2048px would cost more than one-shadow-budget can buy.
+
+### Camera (delta from Session 5.5 placeholder pose)
+- Position `[0, 1.6, 5]`, target `[0, 1.8, 0]`. Target lifted `+0.2` from placeholder so the default gaze tilts up slightly, framing tall building tops.
+- FOV `62` (was `60` placeholder).
+- OrbitControls: `enableZoom={false}`, `enablePan={false}` (locked from 5.5). Polar clamp opened from `[π/3, 2π/3]` (60–120°) to `[π/4, 0.6π]` (~45–108°) so users can look up at building tops. `rotateSpeed: 0.4` — placeholder used the default 1.0 which felt twitchy first-person.
+- No camera state preservation; every street entry resets to the fixed pose. Per-cell pose is intentionally NOT a thing.
+
+### Tone mapping / color encoding
+- Canvas defaults: ACES filmic tone mapping + sRGB output. Not modified — changing the Canvas would also affect CityScene, which is locked.
+- Source-side hexes (e.g. directional `#ffb066`, hemisphere `#5a3f6e`) are tuned hotter / more saturated than the perceived dusk gold and dusk magenta to compensate for ACES desaturation. **If tone mapping ever changes, every light + material color in StreetScene must be re-tuned.**
+
+### Transition ([`src/components/ui/FadeOverlay.tsx`](src/components/ui/FadeOverlay.tsx))
+- **Option 2: simple cross-fade.** `setView` fires synchronously at t=0 (the camera snapshot from 5.5 still runs at the transition boundary), and a fullscreen black div fades in over 150ms then out over 150ms (300ms total) to mask the brief blank-frame moment of the scene swap.
+- State seam: `useViewStore.transitionStartMs` is bumped to `Date.now()` on every `setView` call. `setView` early-returns when `current === next` so no-op clicks don't trigger a fade.
+- **Rapid-toggle behavior: latest-wins.** Each new `setView` updates `transitionStartMs`; `FadeOverlay`'s effect restarts with the new start, and the previous animation frame is cancelled in cleanup. The user sees the most-recent fade cycle, in-flight cycles are abandoned.
+- Overlay is `pointer-events-none`, `zIndex: 15` — above the canvas (z=0), above the no-cell DOM label (z=10), but below all chrome (z=20+). Chrome stays interactive during the fade.
+
 ## Quirks
 
 ### npm install requires `--legacy-peer-deps`
@@ -256,6 +301,53 @@ a street-view camera lerps it toward a city-bbox world position — meaningless
 and visually broken. The gate lives in `selectCellByCoord` and (via
 delegation) `selectCellByZip`. New call sites of `panCameraTo` must add
 their own gate or route through the gated grid actions.
+
+### Street building seed is locked across remounts AND cell changes
+[`generateStreetBuildings`](src/world/streetBuildings.ts) reseeds
+`mulberry32(42)` on every call, so the building set is deterministic across
+mount/unmount cycles and across cell changes within a session. The generator
+reads no cell metadata. If a future session wants per-cell variation
+(different city flavors), it has to thread the cell coordinate through the
+seed AND accept that searching a different zip will shuffle the skyline.
+
+### Street particle density curve is empirical
+`count = clamp(50 + pm25 * 30, 50, 3000)` is a best-fit-by-eye curve, not
+calibrated against any external benchmark. Changing it invalidates the
+screenshot baseline in `web/docs/session-6/` — re-capture all category
+screenshots if you tune the curve. The cap at 3000 means Unhealthy through
+Hazardous are visually indistinguishable density-wise; only the color
+changes between those four categories.
+
+### Street transition rapid-toggle is latest-wins, no queue
+Each `setView` bumps `transitionStartMs` and the [`FadeOverlay`](src/components/ui/FadeOverlay.tsx)
+effect restarts. In-flight fade cycles are cancelled mid-frame; the user
+sees the most-recent fade cycle. There is no abort animation, no queue, no
+re-entrancy guard. If a third option (e.g. "fly-down") is added later, the
+race specification has to be redone.
+
+### No-cell street state uses DOM, not Drei `<Text>`
+[`StreetEmptyState`](src/components/ui/StreetEmptyState.tsx) is a real DOM
+element (absolute-positioned, padded right of the LeftPanel) so the
+guidance string ("No air quality data — search a zip") is screen-reader
+accessible. Drei `<Text>` renders 3D geometry — visually fine, but
+inaccessible. Future scene-relative guidance content has the same
+constraint: use DOM (or Drei `<Html>`), never `<Text>`.
+
+### StreetScene's `<fog>` overrides SceneRoot's while mounted
+SceneRoot mounts a city-distance fog (`['#0a0a0f', 35, 90]`) at the scene
+root. StreetScene mounts its own closer-in fog (`['#0a0a0f', 10, 48]`) via
+`<fog attach="fog">`; R3F's attach mechanism stores the previous fog and
+restores it on unmount. If a future session adds a third scene with its
+own fog, verify the attach/detach order doesn't leave a stale fog on
+unmount — single-frame transitions are fine, but a multi-fog scene tree
+would need explicit testing.
+
+### ACES tone mapping shapes every Street color choice
+Canvas's default tone mapping (ACES filmic) desaturates and shifts hot
+colors. Every hex in StreetScene (directional sun, hemisphere, ambient,
+building shade) was tuned source-side to compensate. Switching to
+`NoToneMapping` or `cineon` requires re-tuning every light + material
+color in the street scene from scratch.
 
 ## Future cleanup
 
@@ -333,11 +425,42 @@ Items intentionally deferred. Address when the upstream condition is met.
   hard refresh re-seeds. Real fix: backend should self-warm on a
   TTL-aware schedule, or the frontend connection gate should not require
   `cache_warm` once it's seen `'ready'` at least once. Backend session.
-- **`StreetScene` is a placeholder.** Session 6 owns scene atmosphere,
-  building generation, particles, lighting tuning, and any city→street
-  transition (fade, fly-down, etc.). The current scene is a void with
-  centered text reading the cell metadata; it exists only to prove view
-  routing works end-to-end.
+- **Street scene per-cell building variation.** Buildings are AQI-agnostic
+  and identical for all 900 cells. A future iteration could vary skyline
+  flavor by cell-cluster (e.g. downtown high-rises vs suburban low-rise)
+  for local character. Generator already takes a seed input; threading the
+  cell coord through `mulberry32` is the work.
+- **Street particle wind responsiveness.** Drift is currently a sealed
+  per-particle sinusoid. Once `/api/sensors` exposes metro wind speed +
+  direction (see Status bar wind metric above), particles could drift
+  along the wind vector for an extra "the air is moving" cue.
+- **Force-test harness for Very Unhealthy / Hazardous categories.** DFW
+  PM₂.₅ doesn't reach those bands, so the color + density behavior at
+  pm25 ≥ 150 is verified by formula audit only, not visually. A small dev
+  harness (URL param or window-exposed setter) that overrides the
+  selected cell's pm25Mean would let future sessions actually capture
+  `street-veryUnhealthy.png` / `street-hazardous.png`.
+- **`prefers-reduced-motion` is not honored** for the FadeOverlay or for
+  particle drift. Project-wide gap, not specific to street scene; address
+  when accessibility becomes a real ask.
+- **Mid-session backend data refresh updates particles silently.** If
+  PM₂.₅ for the selected cell changes mid-session (background grid poll),
+  particle count + color update without a fade transition. Acceptable for
+  v1 — could read as a bug during a live demo if the change is dramatic.
+- **Camera control limits on street tuned by feel.** No formal usability
+  test on the polar clamp or rotateSpeed. Revisit if first-person UX
+  becomes a real product ask.
+- **No formal abort/queue for the city↔street fade.** Latest-wins is
+  documented but not bullet-proofed for unusual input sequences (e.g.
+  fade trigger from outside `setView`, multiple fades layered visually).
+  Acceptable scope for v1.
+- **`StreetScene` reads `useSelectedCell` directly.** Multi-cell selection
+  (a future feature, e.g. comparing two zip codes side-by-side) would need
+  the particle system and empty-state component to take an explicit cell
+  prop instead of pulling from the global store.
+- **"Find a route · Cleanest path · Soon" placeholder remains** in the
+  city overview after Phase 6 ships. DESIGN_NOTES locks it as placeholder;
+  it activates with Phase 5 (route optimizer).
 - **Pin button on `CellInfoCard` remains placeholder.** Will need a
   pinned-cells store + persistence. Tooltip currently reads "Coming soon".
 - **No URL sync for view routing.** View state is in-memory only — no

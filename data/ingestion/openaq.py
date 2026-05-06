@@ -20,12 +20,13 @@ PM25_PARAMETER_ID = 2
 
 # OpenAQ /latest returns the most recent value with no age guarantee.
 # Federal FRM monitors (e.g. BAM 1022, GRIMM) report hourly continuous data,
-# typically available within 30–60 minutes of the measurement hour.
-# Some monitors report 24-hour averages; their "latest" reading can be many
-# hours old relative to PurpleAir's 10-minute updates, making them unsuitable
-# for contemporaneous fusion. 90 minutes keeps hourly continuous monitors
-# while reliably excluding 24-hour average reporters.
-MAX_OPENAQ_AGE_MINUTES = 90
+# but the OpenAQ pipeline adds publish lag on top of the measurement hour,
+# so right before the next hour's data lands a fresh hourly station can be
+# 100–120 minutes past its last published reading. 90 minutes was filtering
+# legitimate hourly stations during that publish-cycle gap; 130 covers the
+# whole cycle while still excluding 24-hour-average reporters (their
+# "latest" is always 23+ hours stale, far past either threshold).
+MAX_OPENAQ_AGE_MINUTES = 130
 
 
 def _get_api_key() -> str:
@@ -59,12 +60,18 @@ def _get_pm25_sensor_id(loc: dict) -> int | None:
     return None
 
 
-def _fetch_latest_pm25(location_id: int, pm25_sensor_id: int, api_key: str) -> float | None:
+def _fetch_latest_pm25(
+    location_id: int,
+    pm25_sensor_id: int,
+    api_key: str,
+    skip_reasons: dict[str, int] | None = None,
+) -> float | None:
     """
     Fetch the latest PM2.5 value for a location from /locations/{id}/latest.
     The endpoint returns a flat list of readings keyed by sensorsId.
     Returns None if no valid reading exists or if the reading is older than
-    MAX_OPENAQ_AGE_MINUTES.
+    MAX_OPENAQ_AGE_MINUTES. If skip_reasons is provided, increments the
+    matching counter so callers can summarise drop-offs at WARNING level.
     """
     resp = requests.get(
         f"{OPENAQ_BASE_URL}/locations/{location_id}/latest",
@@ -77,6 +84,8 @@ def _fetch_latest_pm25(location_id: int, pm25_sensor_id: int, api_key: str) -> f
             value = reading.get("value")
             timestamp = reading.get("datetime")
             if value is None or timestamp is None:
+                if skip_reasons is not None:
+                    skip_reasons["no_value"] += 1
                 continue
             # OpenAQ v3 returns datetime as either a flat ISO 8601 string OR
             # a nested object {"utc": "...", "local": "..."}. Normalise both
@@ -86,6 +95,8 @@ def _fetch_latest_pm25(location_id: int, pm25_sensor_id: int, api_key: str) -> f
             if isinstance(timestamp, dict):
                 timestamp = timestamp.get("utc")
                 if timestamp is None:
+                    if skip_reasons is not None:
+                        skip_reasons["no_value"] += 1
                     continue
             reading_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
             age_minutes = (datetime.now(timezone.utc) - reading_dt).total_seconds() / 60
@@ -94,8 +105,12 @@ def _fetch_latest_pm25(location_id: int, pm25_sensor_id: int, api_key: str) -> f
                     "OpenAQ sensor %s skipped — reading is %.0f min old (max %d)",
                     location_id, age_minutes, MAX_OPENAQ_AGE_MINUTES,
                 )
+                if skip_reasons is not None:
+                    skip_reasons["stale"] += 1
                 return None
             return float(value)
+    if skip_reasons is not None:
+        skip_reasons["no_matching_sensor"] += 1
     return None
 
 
@@ -134,6 +149,15 @@ def fetch_openaq() -> pd.DataFrame:
         return empty
 
     rows = []
+    skip_reasons = {
+        "missing_coords":     0,
+        "no_pm25_sensor":     0,
+        "fetch_error":        0,
+        "no_value":           0,
+        "no_matching_sensor": 0,
+        "stale":              0,
+        "negative_value":     0,
+    }
     for loc in locations:
         loc_id = loc.get("id")
         name = loc.get("name", f"openaq-{loc_id}")
@@ -142,19 +166,25 @@ def fetch_openaq() -> pd.DataFrame:
         lon = coords.get("longitude")
 
         if lat is None or lon is None:
+            skip_reasons["missing_coords"] += 1
             continue
 
         pm25_sensor_id = _get_pm25_sensor_id(loc)
         if pm25_sensor_id is None:
+            skip_reasons["no_pm25_sensor"] += 1
             continue
 
         try:
-            pm25 = _fetch_latest_pm25(loc_id, pm25_sensor_id, api_key)
+            pm25 = _fetch_latest_pm25(loc_id, pm25_sensor_id, api_key, skip_reasons)
         except Exception as e:
             logger.warning("OpenAQ latest fetch failed for location %s — skipping. (%s)", loc_id, e)
+            skip_reasons["fetch_error"] += 1
             continue
 
-        if pm25 is None or pm25 < 0:
+        if pm25 is None:
+            continue
+        if pm25 < 0:
+            skip_reasons["negative_value"] += 1
             continue
 
         rows.append({
@@ -172,7 +202,15 @@ def fetch_openaq() -> pd.DataFrame:
         })
 
     if not rows:
-        logger.warning("OpenAQ returned locations but no valid PM2.5 readings.")
+        # Surface per-reason drop-offs so the warning is actionable. The
+        # most common cause is `stale` during the OpenAQ publish-cycle gap
+        # (see MAX_OPENAQ_AGE_MINUTES note above).
+        nonzero = {k: v for k, v in skip_reasons.items() if v > 0}
+        logger.warning(
+            "OpenAQ returned %d location(s) but no valid PM2.5 readings. "
+            "Skip reasons: %s",
+            len(locations), nonzero or "(unknown)",
+        )
         return empty
 
     return pd.DataFrame(

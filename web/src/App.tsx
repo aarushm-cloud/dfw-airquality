@@ -7,6 +7,8 @@ import { LeftPanel } from './components/ui/LeftPanel';
 import { TopStatusBar } from './components/ui/TopStatusBar';
 import { TopNav } from './components/ui/TopNav';
 import { BreadcrumbFooter } from './components/ui/BreadcrumbFooter';
+import { StreetEmptyState } from './components/ui/StreetEmptyState';
+import { FadeOverlay } from './components/ui/FadeOverlay';
 import { useConnection } from './state/connection';
 import { useGrid } from './state/grid';
 import { useSensorsStore } from './state/sensors';
@@ -90,6 +92,8 @@ function App() {
       <ZipSearch />
       <CellInfoCard />
       <BreadcrumbFooter />
+      <StreetEmptyState />
+      <FadeOverlay />
       <HealthBadge />
     </>
   );
