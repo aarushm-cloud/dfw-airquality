@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useSelectedCell, useSelectedCategory } from '../../state/grid';
-import { AQI_COLOR } from '../../world/aqi';
+import { useSelectedCell, useSelectedCategory } from '../../../state/grid';
+import { AQI_COLOR } from '../../../world/aqi';
 
 // Allocate-once / set-count-dynamically (Option A in the session prompt). We
 // pre-allocate MAX_PARTICLES instance slots up front, then mutate mesh.count

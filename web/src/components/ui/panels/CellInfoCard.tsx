@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom';
 // Mount animation removed: the rAF-driven opacity/translate flip was leaving
 // the card invisible. Add it back later only if it can be done without
 // gating initial visibility on a state flip.
-import { useGrid, useSelectedCell, useSelectedCellMeta, useSearchedZip } from '../../state/grid';
-import { useViewStore } from '../../state/view';
-import { AQI_COLOR, AQI_LABEL, classifyPm25, LOW_CONFIDENCE_THRESHOLD } from '../../world/aqi';
+import { useGrid, useSelectedCell, useSelectedCellMeta, useSearchedZip } from '../../../state/grid';
+import { useViewStore } from '../../../state/view';
+import { AQI_COLOR, AQI_LABEL, classifyPm25, LOW_CONFIDENCE_THRESHOLD } from '../../../world/aqi';
 
 const ZIP_LOADING_GRACE_MS = 1500;
 

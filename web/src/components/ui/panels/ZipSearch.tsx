@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { useGrid } from '../../state/grid';
-import { ZipNotCoveredError } from '../../api/client';
+import { useGrid } from '../../../state/grid';
+import { ZipNotCoveredError } from '../../../api/client';
 
 type Status = 'idle' | 'searching' | 'success' | 'not_covered' | 'invalid' | 'error';
 

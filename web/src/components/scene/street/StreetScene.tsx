@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import { Instance, Instances, OrbitControls, PerspectiveCamera } from '@react-three/drei';
-import { useSceneStore } from '../../state/scene';
-import { generateStreetBuildings } from '../../world/streetBuildings';
+import { useSceneStore } from '../../../state/scene';
+import { generateStreetBuildings } from '../../../world/street/streetBuildings';
 import { StreetParticles } from './StreetParticles';
 
 // First-person dusk street. Stylized grey rectangles flank a Z-aligned street

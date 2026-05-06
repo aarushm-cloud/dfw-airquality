@@ -1,16 +1,16 @@
-import { useGrid, useSelectedCell, useSelectedCellMeta, useMetroAggregates } from '../../state/grid';
+import { useGrid, useSelectedCell, useSelectedCellMeta, useMetroAggregates } from '../../../state/grid';
 import {
   AQI_COLOR,
   AQI_LABEL,
   classifyPm25,
   confidenceLabel,
   LOW_CONFIDENCE_THRESHOLD,
-} from '../../world/aqi';
+} from '../../../world/aqi';
 import {
   HEALTH_GUIDANCE,
   GUIDANCE_SOURCE_URL,
   GUIDANCE_SOURCE_LABEL,
-} from '../../world/healthGuidance';
+} from '../../../world/healthGuidance';
 
 // Locked at 280px — ZipSearch left offset (left-[296px]) and any future top
 // chrome math depend on this. Update CONTRACT if changed.

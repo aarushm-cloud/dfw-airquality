@@ -1,4 +1,4 @@
-import { useViewStore } from '../../state/view';
+import { useViewStore } from '../../../state/view';
 
 type Tab = {
   key: 'city' | 'street' | 'time' | 'route';

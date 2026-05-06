@@ -1,5 +1,5 @@
-import { CityScene } from './CityScene';
-import { StreetScene } from './StreetScene';
+import { CityScene } from './city/CityScene';
+import { StreetScene } from './street/StreetScene';
 import { useViewStore } from '../../state/view';
 
 // View-agnostic infrastructure (background color, fog) lives here so the

@@ -1,5 +1,5 @@
-import { CELL_X, CELL_Z, GRID_SIZE, cellToWorld } from './bbox';
-import { noise01, noise2D } from './noise';
+import { CELL_X, CELL_Z, GRID_SIZE, cellToWorld } from '../bbox';
+import { noise01, noise2D } from '../noise';
 
 export type Building = {
   x: number;

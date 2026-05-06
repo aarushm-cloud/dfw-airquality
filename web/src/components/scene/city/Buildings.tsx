@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { generateBuildings } from '../../world/buildings';
+import { generateBuildings } from '../../../world/city/buildings';
 
 export function Buildings() {
   const buildings = useMemo(() => generateBuildings(), []);

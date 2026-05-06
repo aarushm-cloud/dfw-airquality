@@ -1,4 +1,4 @@
-import { useConnection, type Status } from '../state/connection';
+import { useConnection, type Status } from '../../state/connection';
 
 type StatusVariant = { label: string; dot: string };
 

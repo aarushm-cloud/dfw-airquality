@@ -1,6 +1,6 @@
-import { useViewStore } from '../../state/view';
-import { useSelectedCell } from '../../state/grid';
-import { PANEL_WIDTH_PX } from './LeftPanel';
+import { useViewStore } from '../../../state/view';
+import { useSelectedCell } from '../../../state/grid';
+import { PANEL_WIDTH_PX } from '../panels/LeftPanel';
 
 // DOM overlay for the "no cell selected" street state. Required to be DOM
 // (not Drei <Text>) so the guidance text is screen-reader accessible —

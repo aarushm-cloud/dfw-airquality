@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useViewStore } from '../../state/view';
+import { useViewStore } from '../../../state/view';
 
 // Simple cross-fade overlay (Option 2). setView fires synchronously at t=0
 // so the camera snapshot in setView still runs before the scene swap; this

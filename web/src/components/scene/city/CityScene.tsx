@@ -5,7 +5,7 @@ import { Buildings } from './Buildings';
 import { CellFloorTint } from './CellFloorTint';
 import { CellGrid } from './CellGrid';
 import { Particles } from './Particles';
-import { useSceneStore } from '../../state/scene';
+import { useSceneStore } from '../../../state/scene';
 
 export function CityScene() {
   const controlsRef = useRef<any>(null);

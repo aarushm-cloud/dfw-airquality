@@ -1,8 +1,8 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { useGrid } from '../../state/grid';
-import { CELL_X, CELL_Z, cellToWorld } from '../../world/bbox';
-import { threeColorForPm25 } from '../../world/aqi';
+import { useGrid } from '../../../state/grid';
+import { CELL_X, CELL_Z, cellToWorld } from '../../../world/bbox';
+import { threeColorForPm25 } from '../../../world/aqi';
 
 function particleCountForPm25(pm25: number): number {
   if (pm25 < 12) return Math.floor(1 + Math.random() * 2);

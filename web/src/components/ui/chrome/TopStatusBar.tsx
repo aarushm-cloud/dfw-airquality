@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useGrid, useMetroAggregates } from '../../state/grid';
-import { useSensorsStore } from '../../state/sensors';
-import { AQI_COLOR } from '../../world/aqi';
+import { useGrid, useMetroAggregates } from '../../../state/grid';
+import { useSensorsStore } from '../../../state/sensors';
+import { AQI_COLOR } from '../../../world/aqi';
 
 const RELATIVE_TIME_TICK_MS = 30_000;
 

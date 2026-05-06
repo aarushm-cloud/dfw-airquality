@@ -1,9 +1,9 @@
-import { useGrid, useSelectedCellMeta } from '../../state/grid';
-import { useViewStore } from '../../state/view';
-import { BBOX } from '../../world/bbox';
+import { useGrid, useSelectedCellMeta } from '../../../state/grid';
+import { useViewStore } from '../../../state/view';
+import { BBOX } from '../../../world/bbox';
 // Vite supports JSON imports natively. tsconfig "moduleResolution: bundler"
 // resolves them without needing resolveJsonModule.
-import pkg from '../../../package.json';
+import pkg from '../../../../package.json';
 
 const PKG_VERSION = (pkg as { version: string }).version;
 

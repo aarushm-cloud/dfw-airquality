@@ -6,8 +6,8 @@ import {
   CELL_Z,
   GRID_SIZE,
   cellToWorld,
-} from '../../world/bbox';
-import { useGrid } from '../../state/grid';
+} from '../../../world/bbox';
+import { useGrid } from '../../../state/grid';
 
 const CELL_INSET = 0.96;
 const CELL_SCALE_X = CELL_X * CELL_INSET;

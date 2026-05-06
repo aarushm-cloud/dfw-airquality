@@ -1,5 +1,5 @@
 import { Canvas } from '@react-three/fiber';
-import { SceneRoot } from './scene/SceneRoot';
+import { SceneRoot } from './SceneRoot';
 
 // Inline `position: fixed; inset: 0` ensures the canvas fills the viewport
 // even when the Tailwind classes are clobbered by a DevTools layout — without
