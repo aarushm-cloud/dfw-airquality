@@ -5,12 +5,17 @@
 # counter reading, and epa_corrected flags which rows had humidity available.
 # Downstream code should treat pm25 as already corrected and NOT apply the
 # formula again.
+#
+# The Barkjohn 2021 correction formula itself lives in data/corrections.py and
+# is shared with the training pipeline (ml/training/collect_training_data.py)
+# so both pipelines apply byte-identical math.
 
 import os
 import requests
 import pandas as pd
 from dotenv import load_dotenv
 from config import BBOX, PURPLEAIR_BASE_URL
+from data.corrections import apply_epa_correction
 
 load_dotenv()
 
@@ -23,52 +28,10 @@ def get_api_key() -> str:
     return key
 
 
-def apply_epa_correction(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Apply the EPA's PM2.5 correction formula for PurpleAir sensors:
-
-        PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71
-
-    Input MUST be the CF=1 channel (pm2.5_cf_1 / pm2.5_cf_1_10minute).
-    This formula (Barkjohn et al. 2021) was derived from co-location studies
-    using CF=1 readings. Feeding it ATM-channel data overcorrects at moderate
-    concentrations and diverges significantly at PM2.5 > 50 µg/m³.
-
-    TODO: this is duplicated in ml/training/collect_training_data.py:apply_epa_correction
-    (the training script can't import from this module without booting up the
-    live PurpleAir endpoint). Both must be edited in lockstep. Follow-up:
-    extract into a shared data/corrections.py module.
-
-    PurpleAir's laser particle counter systematically overestimates PM2.5,
-    especially at higher humidity, because water droplets scatter laser light
-    and get counted as particles. The EPA's regression formula, derived from
-    years of co-location studies with federal reference-grade monitors, is the
-    standard correction in U.S. regulatory and public health contexts (see
-    EPA's AirNow Fire and Smoke Map technical documentation).
-
-    Behaviour:
-      - Rows with humidity present are corrected.
-      - Rows with missing humidity fall back to the raw reading.
-      - epa_corrected flags which rows were corrected (1) vs. left raw (0).
-      - Corrected values are clipped to >= 0 (the formula can produce small
-        negatives at very low concentrations).
-      - The original reading is preserved in pm25_raw for audit purposes.
-    """
-    out = df.copy()
-    out["pm25_raw"] = out["pm25"]
-
-    # If humidity wasn't returned at all, every row stays uncorrected.
-    if "humidity" not in out.columns:
-        out["epa_corrected"] = 0
-        return out
-
-    has_rh = out["humidity"].notna()
-
-    corrected = 0.52 * out["pm25_raw"] - 0.085 * out["humidity"] + 5.71
-    out.loc[has_rh, "pm25"] = corrected[has_rh].clip(lower=0)
-
-    out["epa_corrected"] = has_rh.astype(int)
-    return out
+# apply_epa_correction is now defined in data/corrections.py and shared with
+# the training pipeline. Re-exported here for any external callers that
+# imported it from this module.
+__all__ = ["get_api_key", "fetch_sensors", "classify_pm25", "apply_epa_correction"]
 
 
 def fetch_sensors() -> pd.DataFrame:

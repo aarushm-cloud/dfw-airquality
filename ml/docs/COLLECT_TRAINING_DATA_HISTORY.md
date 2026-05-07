@@ -109,7 +109,7 @@ on the full DataFrame.
 - Adds the temporal traffic features.
 - **Renames columns** to match the live-snapshot schema in
   `data/history.py` (`sensor_id`, `lat`, `lon`, `wind_speed`, `wind_deg`,
-  `hour_of_day`) and tags every row `source = "purpleair"`.
+  `local_hour_of_day`) and tags every row `source = "purpleair"`.
 - Sorts by `(timestamp, sensor_id)` and writes the final CSV.
 
 ### Reporting and exits
@@ -189,7 +189,7 @@ There are five purposeful changes on top of `6ac269c`:
 4. **Rename output columns to match `data/history.py`'s schema.**
    `sensor_index → sensor_id`, `latitude → lat`, `longitude → lon`,
    `wind_speed_ms → wind_speed`, `wind_dir_deg → wind_deg`, `hour →
-   hour_of_day`.
+   local_hour_of_day`.
    *Purpose:* make the historical training rows from this script and the
    live snapshot rows from `history.py` schema-compatible, so the Phase 4
    model can be trained on either one (or both concatenated) without any
