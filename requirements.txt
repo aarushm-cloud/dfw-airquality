@@ -9,7 +9,9 @@ geopandas>=0.14.0
 shapely>=2.0.0
 scikit-learn>=1.4.0
 apscheduler>=3.10.0
-pgeocode>=0.4.0
+# uszipcode is intentionally pinned to 0.2.6 — newer versions have had
+# install-stability issues on this codebase. It covers both forward and
+# reverse zip lookups, which is why pgeocode was dropped.
 uszipcode==0.2.6
 scipy>=1.11.0
 matplotlib>=3.8.0
@@ -21,4 +23,5 @@ geopy>=2.4.0
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.6.0
+filelock>=3.0
 pytest>=8.0.0  # dev

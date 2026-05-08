@@ -206,7 +206,7 @@ Bounding box: N 33.08 / S 32.55 / E -96.46 / W -97.05
 
 - **Cleanest-path route optimizer** — graph routing on the OSM street network, with edge weights combining distance and PM₂.₅ exposure. Backend (`engine/router.py`) is scaffolded; UI integration pending.
 - **Historical playback** — time-machine view over the accumulated `dashboard_snapshots.csv`, scrubbing through past PM₂.₅ states.
-- **Random Forest residual model in inference** — the spatial feature pipeline (highway distance via OSMnx) is built; the model itself is not yet wired to the live dashboard.
+- **Random Forest residual model in inference** — *evaluated, baseline outperformed, shelved.* The 180-day RF pipeline didn't beat deterministic IDW + adjustments on RMSE (see [`ml/docs/PHASE4_RESULT.md`](ml/docs/PHASE4_RESULT.md) for the full negative-result writeup). Training infrastructure and the OSMnx-backed spatial feature pipeline are retained, but the live dashboard runs on IDW.
 - **Production deployment** — Render (backend) and Vercel (frontend). Currently runs locally via `dev.sh`.
 
 ---

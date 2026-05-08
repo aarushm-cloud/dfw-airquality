@@ -1,3 +1,7 @@
+# DEPRECATED: Phase 4 RF model was evaluated and shelved.
+# The dashboard runs on IDW + adjust_grid; this module is dormant.
+# See ml/docs/PHASE4_RESULT.md for the full negative-result writeup.
+#
 # ml/predictor.py — Phase 4 Random Forest inference for grid cells.
 #
 # Loads models/rf_phase4.pkl once per process and predicts PM2.5 at every cell
@@ -23,6 +27,15 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
+# Project root is on sys.path via ROOT.parent in the training pipeline; here
+# we add it directly because predictor.py may be imported as `ml.predictor`
+# from a script whose CWD is the repo root.
+import sys as _sys
+if str(ROOT) not in _sys.path:
+    _sys.path.insert(0, str(ROOT))
+
+from config import DFW_AIRPORT_LAT_LON  # noqa: E402
+
 MODEL_PATH = ROOT / "ml" / "models" / "rf_phase4.pkl"
 METADATA_PATH = ROOT / "ml" / "models" / "rf_phase4_metadata.json"
 
@@ -30,8 +43,7 @@ PM25_MIN_PLAUSIBLE = 0.0
 PM25_MAX_PLAUSIBLE = 500.0
 
 # DFW airport — used as the dummy point for the schema parity check.
-DFW_AIRPORT_LAT = 32.8998
-DFW_AIRPORT_LON = -97.0403
+DFW_AIRPORT_LAT, DFW_AIRPORT_LON = DFW_AIRPORT_LAT_LON
 
 log = logging.getLogger(__name__)
 

@@ -17,12 +17,12 @@
 # accidental schema change is loud, not silent.
 
 import os
-import fcntl
 import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from filelock import FileLock
 
 logger = logging.getLogger(__name__)
 
@@ -159,19 +159,20 @@ def save_snapshot(
         f"Got {list(new_rows.columns)}, expected {COLUMNS}."
     )
 
-    file_exists = os.path.isfile(HISTORY_PATH)
-
-    # Open in append mode and hold an exclusive lock for the duration of the
-    # write to prevent corruption if two Streamlit sessions or a Streamlit
-    # session and scripts/collector.py run simultaneously.
-    # NOTE: fcntl is POSIX-only. Issue #4 in the audit tracks moving this to
-    # cross-platform `filelock`; out of scope for the schema-hygiene pass.
-    with open(HISTORY_PATH, "a", newline="") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        try:
+    # Hold an exclusive lock on a sidecar `.lock` file for the duration of
+    # the write. Cross-platform via the `filelock` package (POSIX flock on
+    # Linux/macOS, LockFileEx on Windows). Two concurrent Streamlit sessions
+    # or a Streamlit + scripts/collector.py both calling save_snapshot()
+    # will serialize through this lock instead of interleaving writes.
+    #
+    # The `file_exists` check lives inside the lock: without it, two callers
+    # racing on a fresh file could each see no header and both write one,
+    # producing a CSV with a duplicate header row.
+    lock = FileLock(HISTORY_PATH + ".lock")
+    with lock:
+        file_exists = os.path.isfile(HISTORY_PATH)
+        with open(HISTORY_PATH, "a", newline="") as f:
             new_rows.to_csv(f, index=False, header=not file_exists)
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def load_history() -> pd.DataFrame:

@@ -7,16 +7,6 @@
 # feeds the model) before turning on RF inference. Static feature, cached on
 # disk — same call as in `ml/training/collect_training_data.py:collect_all_purpleair`.
 #
-# Allow running this file directly for the __main__ verification block:
-#   python engine/features.py
-# When run as a script, Python puts engine/ on sys.path[0] instead of the project
-# root, so "from engine.adjustments import ..." fails. The block below fixes that
-# before any package imports happen.
-import sys as _sys, os as _os
-if __name__ == "__main__":
-    _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-#
-#
 # build_features() no longer modifies pm25. PurpleAir sensors already measure the
 # real-world effects of nearby traffic and wind; applying another adjustment on top
 # of the raw reading would double-count those effects.
@@ -148,26 +138,3 @@ def build_features(
     df["dispersal"]          = dispersals
 
     return df
-
-
-# ---------------------------------------------------------------------------
-# Wind direction sign verification
-# Run from the project root: python engine/features.py
-# ---------------------------------------------------------------------------
-if __name__ == "__main__":
-
-    sensor_lat, sensor_lon = 32.80, -96.80
-    traffic_lat, traffic_lon = 32.80, -96.81
-    wind_deg_test = 270.0   # wind coming FROM the west → blowing east
-
-    nearest_test = pd.Series({"lat": traffic_lat, "lon": traffic_lon, "congestion": 0.8})
-    dir_factor = wind_direction_factor(sensor_lat, sensor_lon, nearest_test, wind_deg_test)
-    disp_test  = wind_dispersal_factor(5.0)
-    wind_term  = dir_factor * disp_test * WIND_WEIGHT
-
-    print("=== Wind direction sign verification ===")
-    print(f"  direction_factor: {dir_factor:.4f}  (expect ≈-1, wind transports toward sensor)")
-    print(f"  wind_term:        {wind_term:.4f}   (expect negative)")
-    print(f"  pm25 change: raw - wind_term → raw - ({wind_term:.2f}) → raw + {-wind_term:.2f}")
-    print("  ✓ CORRECT: pm25 would INCREASE when wind blows pollution toward sensor" if wind_term < 0
-          else "  ✗ BUG: wind_term is positive — sign is wrong")

@@ -91,20 +91,73 @@ def _load_highways() -> list[LineString]:
 
 
 # Module-level cache: load the network once per process, not once per call.
+# `_HIGHWAYS_MTIME` records the disk-cache file's mtime at load time so
+# `_highways()` can cheaply detect a refreshed disk cache and self-refresh.
 _HIGHWAYS: Optional[list[LineString]] = None
+_HIGHWAYS_MTIME: Optional[float] = None
+
+
+def refresh_highways() -> None:
+    """
+    Drop the in-process highway cache so the next `_highways()` call reloads
+    from disk (or refetches if the disk cache is stale).
+
+    Also clears the `compute_distance_to_highway` lru_cache, which would
+    otherwise keep returning stale per-coordinate distances even after the
+    underlying geometry was reloaded.
+
+    Called automatically from `_highways()` when the on-disk cache file's
+    mtime advances past the in-process snapshot's mtime — see #18 in the
+    audit. Also exposed publicly so a caller can force a reload (e.g. after
+    explicitly invalidating the disk cache).
+    """
+    global _HIGHWAYS, _HIGHWAYS_MTIME
+    _HIGHWAYS = None
+    _HIGHWAYS_MTIME = None
+    compute_distance_to_highway.cache_clear()
+
+
+def _maybe_refresh_on_mtime_change() -> None:
+    """
+    Cheap freshness probe — stat the disk cache file and compare its mtime
+    to the snapshot we took at load time. If the disk file is newer, drop
+    both the in-process highway list and the lru_cache so the next lookup
+    pulls fresh geometry.
+
+    Called from `compute_distance_to_highway` *before* the lru_cache layer
+    so it actually runs on cache hits — embedding it inside the cached body
+    would never fire for a coordinate already in the cache, which is
+    exactly the long-running-process staleness window #18 cares about.
+
+    A single `os.stat` on a small file is on the order of µs on macOS/Linux
+    (well under the cost of a returned cached lookup), so this is safe to
+    run on every public call.
+    """
+    if _HIGHWAYS is None or _HIGHWAYS_MTIME is None or not CACHE_FILE.exists():
+        return
+    disk_mtime = CACHE_FILE.stat().st_mtime
+    if disk_mtime > _HIGHWAYS_MTIME:
+        log.info("Highway disk cache refreshed since load — reloading")
+        refresh_highways()
 
 
 def _highways() -> list[LineString]:
-    global _HIGHWAYS
+    """Return the cached list of highway LineStrings, lazy-loading from
+    disk on first access. Mtime-driven invalidation is handled separately
+    by `_maybe_refresh_on_mtime_change` so it can run before the
+    `compute_distance_to_highway` lru_cache."""
+    global _HIGHWAYS, _HIGHWAYS_MTIME
     if _HIGHWAYS is None:
         _HIGHWAYS = _load_highways()
+        _HIGHWAYS_MTIME = (
+            CACHE_FILE.stat().st_mtime if CACHE_FILE.exists() else None
+        )
     return _HIGHWAYS
 
 
-@lru_cache(maxsize=4096)
-def compute_distance_to_highway(lat: float, lon: float) -> float:
-    """Returns geodesic distance in meters from (lat, lon) to the
-    nearest major DFW highway segment. Cached on disk."""
+def _distance_to_highway_uncached(lat: float, lon: float) -> float:
+    """Pure geometry — distance from (lat, lon) to the nearest major DFW
+    highway segment, in meters. Wrapped by an lru_cache below."""
     point = Point(lon, lat)
     highways = _highways()
 
@@ -114,3 +167,30 @@ def compute_distance_to_highway(lat: float, lon: float) -> float:
     nearest_line = min(highways, key=point.distance)
     on_line, _ = nearest_points(nearest_line, point)
     return geodesic((lat, lon), (on_line.y, on_line.x)).meters
+
+
+_distance_cached = lru_cache(maxsize=4096)(_distance_to_highway_uncached)
+
+
+def compute_distance_to_highway(lat: float, lon: float) -> float:
+    """Returns geodesic distance in meters from (lat, lon) to the
+    nearest major DFW highway segment.
+
+    Two-layer cache:
+      1. Per-coordinate `lru_cache` on the inner geometry function.
+      2. The `_HIGHWAYS` snapshot, refreshed automatically when the disk
+         cache file's mtime advances past our recorded snapshot.
+
+    The mtime probe runs *before* the lru_cache lookup so a refresh
+    invalidates per-coordinate results too — otherwise long-running
+    processes would keep serving stale distances forever.
+    """
+    _maybe_refresh_on_mtime_change()
+    return _distance_cached(lat, lon)
+
+
+# Forward the lru_cache control attributes to the public name so callers
+# (refresh_highways, tests) can use compute_distance_to_highway.cache_clear()
+# / .cache_info() the same way they would on a directly-decorated function.
+compute_distance_to_highway.cache_clear = _distance_cached.cache_clear
+compute_distance_to_highway.cache_info = _distance_cached.cache_info

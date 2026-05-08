@@ -60,6 +60,27 @@ def _get_pm25_sensor_id(loc: dict) -> int | None:
     return None
 
 
+def _parse_reading_timestamp(ts: str) -> datetime:
+    """
+    Parse an OpenAQ v3 datetime string into a tz-aware UTC datetime.
+
+    OpenAQ returns timestamps in three observed shapes:
+      - "...Z"         (Zulu suffix; Python 3.10's fromisoformat needs +00:00)
+      - "...+00:00"    (or any other explicit offset; honoured as-is)
+      - "..."          (no marker at all; treated as UTC because the field
+                        the value comes from is named `utc` and the v3 docs
+                        only document UTC-keyed access)
+
+    The third case is the regression #8 guards: without this guard, a naive
+    datetime would feed `datetime.now(timezone.utc) - reading_dt` and raise
+    `TypeError: can't subtract offset-naive and offset-aware datetimes`.
+    """
+    parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def _fetch_latest_pm25(
     location_id: int,
     pm25_sensor_id: int,
@@ -88,17 +109,16 @@ def _fetch_latest_pm25(
                     skip_reasons["no_value"] += 1
                 continue
             # OpenAQ v3 returns datetime as either a flat ISO 8601 string OR
-            # a nested object {"utc": "...", "local": "..."}. Normalise both
-            # shapes to a UTC ISO string before parsing. Python 3.10's
-            # fromisoformat does not accept a trailing 'Z', so swap it for
-            # an explicit "+00:00" offset.
+            # a nested object {"utc": "...", "local": "..."}. Normalise the
+            # shape, then hand the string to _parse_reading_timestamp which
+            # handles tz-suffix variants and naive-as-UTC for us.
             if isinstance(timestamp, dict):
                 timestamp = timestamp.get("utc")
                 if timestamp is None:
                     if skip_reasons is not None:
                         skip_reasons["no_value"] += 1
                     continue
-            reading_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            reading_dt = _parse_reading_timestamp(timestamp)
             age_minutes = (datetime.now(timezone.utc) - reading_dt).total_seconds() / 60
             if age_minutes > MAX_OPENAQ_AGE_MINUTES:
                 logger.debug(

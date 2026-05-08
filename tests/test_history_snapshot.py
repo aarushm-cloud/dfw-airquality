@@ -187,3 +187,61 @@ def test_multiple_snapshots_accumulate(isolated_history):
     assert len(df) == 2
     # Hours are local — 9 and 10 in CDT for 14:00 and 15:00 UTC.
     assert sorted(df["local_hour_of_day"].tolist()) == [9, 10]
+
+
+# ---------------------------------------------------------------------------
+# Audit #4: cross-platform file locking via filelock
+# ---------------------------------------------------------------------------
+
+def test_save_snapshot_acquires_sidecar_lock(isolated_history, monkeypatch):
+    """save_snapshot must lock via a sidecar `.lock` file, not by locking
+    the CSV itself. We can't assert the .lock exists after the call because
+    filelock auto-removes it on POSIX; instead we wrap FileLock with a spy
+    to capture (a) the path it was constructed with and (b) that __enter__
+    and __exit__ both ran."""
+    real_filelock = history.FileLock
+    calls = {"path": None, "entered": 0, "exited": 0}
+
+    class SpyLock:
+        def __init__(self, path, *args, **kwargs):
+            calls["path"] = path
+            self._inner = real_filelock(path, *args, **kwargs)
+
+        def __enter__(self):
+            calls["entered"] += 1
+            return self._inner.__enter__()
+
+        def __exit__(self, *exc):
+            calls["exited"] += 1
+            return self._inner.__exit__(*exc)
+
+    monkeypatch.setattr(history, "FileLock", SpyLock)
+
+    ts = datetime(2026, 5, 7, 14, 0, 0, tzinfo=timezone.utc)
+    save_snapshot(_minimal_sensor_df(), pd.DataFrame(),
+                  {"wind_speed": 0, "wind_deg": None}, timestamp=ts)
+
+    assert calls["path"] == str(isolated_history) + ".lock"
+    assert calls["entered"] == 1
+    assert calls["exited"] == 1
+
+
+def test_sequential_saves_do_not_leave_held_lock(isolated_history):
+    """Two sequential calls must each acquire and release the lock cleanly.
+    A second FileLock acquire after both calls should not block — proving
+    the first call released its lock."""
+    ts = datetime(2026, 5, 7, 14, 0, 0, tzinfo=timezone.utc)
+    wind = {"wind_speed": 0, "wind_deg": None}
+
+    save_snapshot(_minimal_sensor_df(), pd.DataFrame(), wind, timestamp=ts)
+    save_snapshot(_minimal_sensor_df(), pd.DataFrame(), wind, timestamp=ts)
+
+    # If the previous calls leaked the lock, this acquire would block past
+    # the timeout. timeout=0.5 keeps a stuck test from hanging the suite.
+    from filelock import FileLock, Timeout
+    lock = FileLock(str(isolated_history) + ".lock", timeout=0.5)
+    try:
+        with lock:
+            pass
+    except Timeout:
+        pytest.fail("save_snapshot left the lock held after returning")

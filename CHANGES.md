@@ -92,6 +92,9 @@ dropping columns.
    df.to_csv("data/dashboard_snapshots.csv", index=False)
    ```
 
+   *(If `df["timestamp"]` is already tz-aware — modern pandas + ISO
+   `+00:00` strings — drop `tz_localize` and use `tz_convert` directly.)*
+
 2. **Run the test suite from the project root** so the relative imports
    resolve:
 

@@ -27,8 +27,18 @@ def _congestion_score(current_speed: float, free_flow_speed: float) -> float:
     """
     Returns a 0–1 score where 0 = free flow, 1 = fully congested.
     Clamps to [0, 1] in case API values are noisy.
+
+    A non-positive free-flow speed indicates bad upstream API data, not
+    free-flowing traffic. We still return 0.0 (the safe contract — the
+    caller treats the segment as uncongested) but emit a WARNING so the
+    bad-data rate is visible in logs rather than silently zeroing out.
     """
     if free_flow_speed <= 0:
+        logger.warning(
+            "TomTom returned non-positive free_flow_speed=%s "
+            "(current_speed=%s) — treating segment as uncongested.",
+            free_flow_speed, current_speed,
+        )
         return 0.0
     ratio = current_speed / free_flow_speed
     return float(np.clip(1.0 - ratio, 0.0, 1.0))

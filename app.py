@@ -49,6 +49,14 @@ with st.sidebar:
             st.caption(f"To:   {latest[:16]}")
 
 # --- Cached data fetches (all TTL 5 minutes) ---
+#
+# The FastAPI backend (api/routes/grid.py) caches the assembled pipeline
+# snapshot with the same 300s TTL. The two caches are intentionally
+# independent — under simultaneous use, worst-case drift between the
+# Streamlit view and the React/AERIA view is ~5 minutes, which is fine
+# because upstream sources (PurpleAir/OpenAQ/TomTom/OpenWeatherMap) only
+# refresh every 10–30 minutes anyway. See api/routes/grid.py for the
+# matching note.
 @st.cache_data(ttl=300, show_spinner="Fetching sensor data...")
 def load_sensors():
     return fetch_sensors()

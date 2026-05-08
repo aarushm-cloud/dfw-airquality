@@ -1,4 +1,8 @@
 """
+DEPRECATED: Phase 4 RF model was evaluated and shelved.
+The dashboard runs on IDW + adjust_grid; this module is dormant.
+See ml/docs/PHASE4_RESULT.md for the full negative-result writeup.
+
 collect_training_data.py
 
 Builds ml/data/history.csv — the training dataset for the Phase 4 Random Forest
@@ -58,7 +62,7 @@ from dotenv import load_dotenv
 # root on sys.path so `from config import BBOX` works regardless of CWD.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from config import BBOX, PURPLEAIR_BASE_URL  # noqa: E402
+from config import BBOX, PURPLEAIR_BASE_URL, DFW_AIRPORT_LAT_LON  # noqa: E402
 
 load_dotenv()
 
@@ -69,8 +73,7 @@ load_dotenv()
 PURPLEAIR_API_KEY: Optional[str] = os.getenv("PURPLEAIR_API_KEY")
 
 # DFW International Airport coordinates (for Meteostat nearest-station lookup)
-DFW_AIRPORT_LAT = 32.8998
-DFW_AIRPORT_LON = -97.0403
+DFW_AIRPORT_LAT, DFW_AIRPORT_LON = DFW_AIRPORT_LAT_LON
 
 # Data quality thresholds
 AB_DISAGREEMENT_THRESHOLD  = 0.50    # drop rows where channels A and B differ >50%
@@ -645,6 +648,7 @@ def add_traffic_features(df: pd.DataFrame) -> pd.DataFrame:
     # Rush hour and weekday/weekend patterns are inherently *local* concepts —
     # 8 AM Central is rush hour in Dallas regardless of what UTC says. The
     # column is named local_hour_of_day so this isn't ambiguous downstream.
+    assert df["timestamp"].dt.tz is not None, "timestamp must be tz-aware"
     local = df["timestamp"].dt.tz_convert("America/Chicago")
     hour = local.dt.hour
     dow = local.dt.dayofweek
@@ -679,6 +683,7 @@ def build_final_dataset(pa_df: pd.DataFrame, wind_df: pd.DataFrame) -> pd.DataFr
     log.info("Step 6: Merging datasets and writing final CSV")
 
     pa_df = pa_df.copy()
+    assert pa_df["timestamp"].dt.tz is not None, "timestamp must be tz-aware"
     pa_df["timestamp"] = pa_df["timestamp"].dt.floor("h")
 
     if not wind_df.empty:

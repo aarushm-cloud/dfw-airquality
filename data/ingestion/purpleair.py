@@ -28,10 +28,11 @@ def get_api_key() -> str:
     return key
 
 
-# apply_epa_correction is now defined in data/corrections.py and shared with
-# the training pipeline. Re-exported here for any external callers that
-# imported it from this module.
-__all__ = ["get_api_key", "fetch_sensors", "classify_pm25", "apply_epa_correction"]
+# apply_epa_correction lives in data/corrections.py and is shared with the
+# training pipeline. The earlier re-export from this module via __all__ was
+# never picked up by any caller (verified by grep), so it's been dropped to
+# keep the public surface honest.
+__all__ = ["get_api_key", "fetch_sensors", "classify_pm25"]
 
 
 def fetch_sensors() -> pd.DataFrame:

@@ -20,6 +20,13 @@ from api.schemas.responses import BBox, GridResponse
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# Cache window for the assembled pipeline snapshot.
+#
+# The Streamlit front-end (app.py:52-66) caches its own copy of each
+# upstream fetch with the same 300s TTL. The two caches are intentionally
+# independent — under simultaneous use, worst-case drift between the two
+# UIs is ~5 minutes, which is acceptable given upstream sources only
+# refresh every 10–30 minutes anyway. See app.py for the matching note.
 _TTL_SECONDS = 300
 
 

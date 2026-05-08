@@ -1,8 +1,6 @@
 from functools import lru_cache
 
 import numpy as np
-import pandas as pd
-import pgeocode
 from fastapi import APIRouter, HTTPException
 from uszipcode import SearchEngine
 
@@ -19,17 +17,30 @@ router = APIRouter()
 # handler would have selected.
 _GRID_SIZE = 30
 
-_nomi = pgeocode.Nominatim("us")
+# Single library for both forward and reverse zip lookups. uszipcode covers
+# both via `by_zipcode` and `by_coordinates`; pgeocode was dropped because it
+# has no clean reverse-coordinate API.
 _search = SearchEngine(simple_zipcode=True)
 
 
 def _zip_lookup(zip_code: str) -> tuple[float, float, str | None]:
-    """Forward-geocode a US zip → (lat, lon, place_name). Raises 404 on miss."""
-    result = _nomi.query_postal_code(zip_code)
-    if pd.isna(result.latitude) or pd.isna(result.longitude):
+    """Forward-geocode a US zip → (lat, lon, place_name).
+
+    Raises 404 if the zip isn't in the database (legitimate not-found) and
+    503 if the lookup engine itself raises (service-level failure — e.g. the
+    SQLite-backed DB is unreadable). Distinguishing them lets the API
+    consumer tell "you typed a bad zip" from "we're broken right now."
+    """
+    try:
+        rec = _search.by_zipcode(zip_code)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Zip lookup service unavailable: {e}",
+        )
+    if rec is None or rec.lat is None or rec.lng is None:
         raise HTTPException(status_code=404, detail=f"Zip code {zip_code!r} not found.")
-    place = result.place_name if pd.notna(result.place_name) else None
-    return float(result.latitude), float(result.longitude), place
+    return float(rec.lat), float(rec.lng), rec.major_city
 
 
 def _in_bbox(lat: float, lon: float) -> bool:

@@ -7,7 +7,6 @@ import base64
 import numpy as np
 import folium
 import pandas as pd
-import pgeocode
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -16,12 +15,10 @@ from uszipcode import SearchEngine
 from config import MAP_CENTER, MAP_ZOOM, AQI_COLORS
 from data.ingestion.purpleair import classify_pm25
 
-# pgeocode Nominatim instance for forward zip-code lookup (zip → lat/lon).
-# Used by zip_to_coords() for any future sidebar search feature.
-_nomi = pgeocode.Nominatim("us")
-
 # uszipcode search engine — loads a local SQLite DB of US zip codes.
 # simple_zipcode=True uses the lightweight "simple" DB (9 MB, faster).
+# Single library for both reverse (coord→zip) and forward (zip→coord)
+# lookups — pgeocode was dropped because it has no clean reverse API.
 _search = SearchEngine(simple_zipcode=True)
 
 
@@ -89,16 +86,19 @@ def _pm25_to_hex(pm25: float) -> str:
 
 def zip_to_coords(zip_code: str) -> tuple[float, float] | None:
     """
-    Forward-geocode a US zip code to (latitude, longitude) using pgeocode's
-    public query_postal_code() method.
+    Forward-geocode a US zip code to (latitude, longitude) using uszipcode.
 
     Returns (lat, lon) on success, or None if the zip is not found.
     Intended for any future "search by zip code" sidebar feature.
+
+    uszipcode's `by_zipcode` returns a SimpleZipcode for *any* input — fields
+    are None when the zip isn't in the DB rather than the call returning None.
+    Hence the lat/lng-is-None check below.
     """
-    result = _nomi.query_postal_code(zip_code)
-    if pd.isna(result.latitude):
+    rec = _search.by_zipcode(zip_code)
+    if rec is None or rec.lat is None or rec.lng is None:
         return None
-    return (result.latitude, result.longitude)
+    return (float(rec.lat), float(rec.lng))
 
 
 def _build_pm25_colormap() -> mcolors.LinearSegmentedColormap:

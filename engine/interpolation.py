@@ -11,8 +11,12 @@
 # adjustments belong here — not on the raw sensor readings (which already reflect
 # real-world traffic and wind conditions at the sensor locations).
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from config import (
     BBOX,
@@ -130,6 +134,22 @@ def run_idw(
         0.0, 1.0,
     )
     confidence = np.where(has_neighbours, confidence, 0.0)
+
+    # Observability: empty-region cells (no sensor within IDW_SEARCH_RADIUS_DEG)
+    # have already been pinned to confidence 0 above and their PM2.5 is the
+    # global-mean fallback. Surface a single per-refresh warning when this is
+    # non-trivial so a sparse-sensor day is visible in logs rather than
+    # silently degrading the heatmap.
+    n_empty_cells = int((~has_neighbours).sum())
+    if n_empty_cells > 0:
+        total_cells = has_neighbours.size
+        pct = n_empty_cells / total_cells * 100
+        logger.warning(
+            "IDW: %d of %d grid cells (%.1f%%) had no sensor within "
+            "IDW_SEARCH_RADIUS_DEG=%.3f and used the global-mean fallback "
+            "(confidence pinned to 0).",
+            n_empty_cells, total_cells, pct, IDW_SEARCH_RADIUS_DEG,
+        )
 
     return lats_2d, lons_2d, idw_estimate, idw_hw_dist, confidence
 

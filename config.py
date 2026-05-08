@@ -23,6 +23,11 @@ BBOX = {
 MAP_CENTER = [32.815, -96.755]
 MAP_ZOOM = 10
 
+# DFW International Airport — used by the training pipeline as the
+# Meteostat lookup point and by ml/predictor.py as the schema-parity
+# probe coordinate. Single source so both stay in lockstep.
+DFW_AIRPORT_LAT_LON = (32.8998, -97.0403)
+
 # Data refresh interval in seconds (used by APScheduler)
 REFRESH_INTERVAL_SECONDS = 300  # 5 minutes
 
