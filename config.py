@@ -76,6 +76,14 @@ IDW_SEARCH_RADIUS_DEG = 0.15
 # the busiest highways. 20 was too aggressive and created artificial hotspots.
 TRAFFIC_WEIGHT = 8.0
 
+# --- Phase 5 route comparator ---
+# Per-edge cleanest-route weight is `length × (pm_midpoint + ROUTE_PM_ALPHA)`.
+# Small α (≈0.1) → PM dominates → cleanest aggressively detours.
+# Large α (≈10) → length dominates → cleanest collapses to shortest.
+# 1.0 keeps PM in the lead at typical Dallas levels (PM₂.₅ ≈ 8 µg/m³) while
+# still letting a short detour win when PM is otherwise close.
+ROUTE_PM_ALPHA = 1.0
+
 # Distance (meters) at which the traffic adjustment fades to zero.
 # At 0 m: full effect. At 250 m: half effect. At 500 m+: zero effect.
 TRAFFIC_DECAY_RADIUS_M = 500

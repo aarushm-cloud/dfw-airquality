@@ -1,6 +1,5 @@
 import logging
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import numpy as np
@@ -14,6 +13,7 @@ from data.ingestion.traffic import fetch_traffic
 from data.ingestion.weather import fetch_wind
 from engine.features import build_features
 from engine.interpolation import adjust_grid, run_idw
+from engine.snapshot import PipelineSnapshot
 
 from api.schemas.responses import BBox, GridResponse
 
@@ -28,18 +28,6 @@ router = APIRouter()
 # UIs is ~5 minutes, which is acceptable given upstream sources only
 # refresh every 10–30 minutes anyway. See app.py for the matching note.
 _TTL_SECONDS = 300
-
-
-@dataclass
-class PipelineSnapshot:
-    timestamp: str
-    sensor_df: pd.DataFrame
-    lats_2d: np.ndarray
-    lons_2d: np.ndarray
-    grid: np.ndarray            # adjusted PM2.5 grid
-    confidence: np.ndarray
-    wind_speed: float
-    wind_deg: float
 
 
 _cache: dict = {"ts": 0.0, "value": None}
