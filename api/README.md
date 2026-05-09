@@ -147,6 +147,41 @@ cached pipeline snapshot as `/api/grid`.
 
 Returns 404 if the zip is unknown or falls outside the Dallas bounding box.
 
+### `GET /api/geocode/suggest`
+
+Server-side proxy for LocationIQ autocomplete. Used by the Route Lab
+typeahead so the LocationIQ key stays off the wire and identical queries
+share a 10-minute TTL cache. Normalizes results to `{display_name, lat,
+lon}` only — provider-specific fields (`place_id`, `class`, `boundingbox`,
+etc.) are not surfaced.
+
+Query params:
+
+- `q` — partial address text, min 2 chars (required)
+- `limit` — max suggestions, 1–10 (default 5)
+
+```
+GET /api/geocode/suggest?q=Klyde&limit=3
+```
+
+```json
+[
+  {
+    "display_name": "Klyde Warren Park, 2012, Woodall Rodgers Freeway, Dallas, TX, 75201, USA",
+    "lat": 32.7898,
+    "lon": -96.8012
+  },
+  ...
+]
+```
+
+Empty results return `200 []` (empty typeahead is a valid state, not an
+error). `503` if `LOCATIONIQ_API_KEY` is unset; `502` on any LocationIQ
+upstream failure (4xx, 5xx, 429, network).
+
+This proxy is for typeahead UX only — `POST /api/route` re-geocodes the
+final picked address authoritatively via `/v1/search`.
+
 ### `POST /api/route`
 
 Compare a length-only shortest walking path against a PM-weighted cleanest

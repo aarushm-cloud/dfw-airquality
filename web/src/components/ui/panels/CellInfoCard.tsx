@@ -130,9 +130,10 @@ export function CellInfoCard() {
 
   if (selectedCellRow === null || selectedCellCol === null) return null;
   // Selection in useGrid is independent of view — it stays set while we're in
-  // street view, so the panel keeps showing guidance for the selected cell.
-  // Only the info card is hidden.
-  if (view === 'street') return null;
+  // street or route view, so the panel keeps showing guidance for the
+  // selected cell. Only the info card is hidden, since route view's stats
+  // card renders in the same top-right slot.
+  if (view === 'street' || view === 'route') return null;
 
   const pm25 = cell?.pm25Mean ?? 0;
   const category = classifyPm25(pm25);

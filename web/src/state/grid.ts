@@ -217,7 +217,10 @@ export const useGrid = create<GridState>((set, get) => ({
     // Gate the pan side effect on view. Selection still propagates everywhere
     // (panel, breadcrumb, placeholder); only the visual camera move is
     // suppressed when not in city view, since the city camera isn't mounted.
-    if (pan && useViewStore.getState().view === 'city') {
+    // Both 'city' and 'route' mount the city camera, so panning is safe in
+    // either view. 'street' has its own fixed pose and would crash on a pan.
+    const v = useViewStore.getState().view;
+    if (pan && (v === 'city' || v === 'route')) {
       const { controls, camera } = useSceneStore.getState();
       if (controls && camera && cell) {
         const world = cellToWorld({ row, col });

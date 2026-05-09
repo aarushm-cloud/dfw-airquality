@@ -1,4 +1,5 @@
 import { useGrid, useSelectedCell, useSelectedCellMeta, useMetroAggregates } from '../../../state/grid';
+import { useViewStore } from '../../../state/view';
 import {
   AQI_COLOR,
   AQI_LABEL,
@@ -41,10 +42,15 @@ function SectionHeader({ children }: { children: string }) {
 }
 
 export function LeftPanel() {
+  const view = useViewStore((s) => s.view);
   const cell = useSelectedCell();
   const meta = useSelectedCellMeta();
   const metro = useMetroAggregates();
   const status = useGrid((s) => s.status);
+
+  // Route Lab replaces the panel's content with route-specific chrome
+  // (RouteLabPanel mounts in the same screen position from App.tsx).
+  if (view === 'route') return null;
 
   const hasCell = cell !== null;
   const category = hasCell ? classifyPm25(cell.pm25Mean) : metro?.category ?? null;

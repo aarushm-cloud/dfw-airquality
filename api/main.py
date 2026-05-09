@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.cells import router as cells_router
+from api.routes.geocode import router as geocode_router
 from api.routes.grid import get_cached_snapshot, router as grid_router
 from api.routes.health import router as health_router
 from api.routes.route import router as route_router
@@ -69,6 +70,7 @@ app.include_router(grid_router, prefix="/api")
 app.include_router(cells_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
 app.include_router(route_router, prefix="/api")
+app.include_router(geocode_router, prefix="/api")
 
 
 def _warmup_pipeline() -> None:
@@ -131,6 +133,7 @@ def root() -> dict:
             "/api/cells/{zip}",
             "/api/health",
             "/api/route",
+            "/api/geocode/suggest",
         ],
         "docs": "/docs",
     }

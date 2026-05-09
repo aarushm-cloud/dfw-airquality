@@ -13,7 +13,10 @@ export function SceneRoot() {
       <color attach="background" args={['#0a0a0f']} />
       <fog attach="fog" args={['#0a0a0f', 35, 90]} />
 
-      {view === 'city' ? <CityScene /> : <StreetScene />}
+      {/* 'city' and 'route' both render the city scene — Route Lab adds
+          <RoutePolylines/> as an overlay inside CityScene without unmounting
+          it, so the OrbitControls handle and camera snapshot stay live. */}
+      {view === 'street' ? <StreetScene /> : <CityScene />}
     </>
   );
 }

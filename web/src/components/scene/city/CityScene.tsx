@@ -5,6 +5,7 @@ import { Buildings } from './Buildings';
 import { CellFloorTint } from './CellFloorTint';
 import { CellGrid } from './CellGrid';
 import { Particles } from './Particles';
+import { RoutePolylines } from './RoutePolylines';
 import { useSceneStore } from '../../../state/scene';
 
 export function CityScene() {
@@ -61,6 +62,7 @@ export function CityScene() {
       <CellGrid />
       <Buildings />
       <Particles />
+      <RoutePolylines />
 
       {import.meta.env.DEV && <axesHelper args={[5]} />}
     </>

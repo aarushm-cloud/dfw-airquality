@@ -25,7 +25,8 @@ export function BreadcrumbFooter() {
         ? `ZIP ${resolvedZip}`
         : 'ZIP —';
 
-  const viewSegment = view === 'street' ? 'STREET VIEW' : 'CITY OVERVIEW';
+  const viewSegment =
+    view === 'street' ? 'STREET VIEW' : view === 'route' ? 'ROUTE LAB' : 'CITY OVERVIEW';
 
   // Resolved zip only — typed-zip disclosure stays in the info card.
   // The breadcrumb is ground-truth navigation state, not interaction artifact.

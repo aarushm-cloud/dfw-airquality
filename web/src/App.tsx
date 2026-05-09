@@ -4,6 +4,8 @@ import { HealthBadge } from './components/ui/HealthBadge';
 import { ZipSearch } from './components/ui/panels/ZipSearch';
 import { CellInfoCard } from './components/ui/panels/CellInfoCard';
 import { LeftPanel } from './components/ui/panels/LeftPanel';
+import { RouteLabPanel } from './components/ui/panels/RouteLabPanel';
+import { RouteStatsCard } from './components/ui/panels/RouteStatsCard';
 import { TopStatusBar } from './components/ui/chrome/TopStatusBar';
 import { TopNav } from './components/ui/chrome/TopNav';
 import { BreadcrumbFooter } from './components/ui/chrome/BreadcrumbFooter';
@@ -87,10 +89,12 @@ function App() {
     <>
       <Scene />
       <LeftPanel />
+      <RouteLabPanel />
       <TopStatusBar />
       <TopNav />
       <ZipSearch />
       <CellInfoCard />
+      <RouteStatsCard />
       <BreadcrumbFooter />
       <StreetEmptyState />
       <FadeOverlay />

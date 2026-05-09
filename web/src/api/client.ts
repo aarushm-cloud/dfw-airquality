@@ -106,3 +106,74 @@ export async function getSensors(): Promise<SensorsResponse> {
   if (!res.ok) throw new Error(`Sensors fetch failed: ${res.status}`);
   return res.json();
 }
+
+// Mirrors api/schemas/responses.py::GeocodeSuggestion exactly.
+export type GeocodeSuggestion = {
+  display_name: string;
+  lat: number;
+  lon: number;
+};
+
+export async function getGeocodeSuggestions(
+  q: string,
+  limit = 5,
+  signal?: AbortSignal,
+): Promise<GeocodeSuggestion[]> {
+  const url = new URL(`${BASE_URL}/api/geocode/suggest`);
+  url.searchParams.set('q', q);
+  url.searchParams.set('limit', String(limit));
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error(`Geocode suggest failed: ${res.status}`);
+  return res.json();
+}
+
+// Mirrors api/schemas/{requests,responses}.py for POST /api/route.
+export type RouteRequest = { start: string; end: string };
+
+export type GeoJSONLineString = {
+  type: 'LineString';
+  coordinates: [number, number][]; // [lon, lat], GeoJSON convention
+};
+
+export type RouteStats = {
+  geometry: GeoJSONLineString;
+  distance_m: number;
+  mean_pm25: number;
+  walk_seconds: number;
+  total_exposure: number;
+};
+
+export type RouteResponse = {
+  cleanest: RouteStats;
+  shortest: RouteStats;
+  timestamp: string;
+};
+
+// Carries the backend-mapped status code and detail string so callers can
+// distinguish 400/404/422/502/503 without re-parsing the body. Mirrors the
+// ZipNotCoveredError pattern.
+export class RouteApiError extends Error {
+  constructor(public status: number, public detail: string) {
+    super(detail);
+    this.name = 'RouteApiError';
+  }
+}
+
+export async function postRoute(req: RouteRequest): Promise<RouteResponse> {
+  const res = await fetch(`${BASE_URL}/api/route`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body?.detail) detail = String(body.detail);
+    } catch {
+      // body wasn't JSON — keep the generic detail
+    }
+    throw new RouteApiError(res.status, detail);
+  }
+  return res.json();
+}

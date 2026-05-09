@@ -1,9 +1,16 @@
 import { create } from 'zustand';
 import { useSceneStore } from './scene';
 
-// Routing as its own domain. Future tabs ('time', 'route') extend this store
+// Routing as its own domain. Future tabs ('time') extend this store
 // without touching grid or scene state.
-type View = 'city' | 'street';
+export type View = 'city' | 'street' | 'route';
+
+// 'city' and 'route' share the city camera (Route Lab is the city scene with
+// polylines overlaid), so transitions between them must NOT snapshot/restore
+// the camera. Only city↔street and route↔street boundaries do.
+function usesCityCamera(v: View): boolean {
+  return v === 'city' || v === 'route';
+}
 
 type ViewState = {
   view: View;
@@ -28,7 +35,7 @@ export const useViewStore = create<ViewState>((set, get) => ({
     // transition instead means it only runs once, with the correct camera.
     const current = get().view;
     if (current === next) return;
-    if (current === 'city' && next !== 'city') {
+    if (usesCityCamera(current) && !usesCityCamera(next)) {
       useSceneStore.getState().snapshotCityCamera();
     }
     set({ view: next, transitionStartMs: Date.now() });

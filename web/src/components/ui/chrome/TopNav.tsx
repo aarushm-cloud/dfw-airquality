@@ -11,7 +11,7 @@ const TABS: readonly Tab[] = [
   { key: 'city',   label: 'City overview', enabled: true,  tooltip: null },
   { key: 'street', label: 'Street view',   enabled: true,  tooltip: null },
   { key: 'time',   label: 'Time machine',  enabled: false, tooltip: 'Historical playback — coming soon' },
-  { key: 'route',  label: 'Route lab',     enabled: false, tooltip: 'Cleanest path optimizer — coming soon' },
+  { key: 'route',  label: 'Route lab',     enabled: true,  tooltip: null },
 ] as const;
 
 function TabButton({ tab, active, onClick }: { tab: Tab; active: boolean; onClick: () => void }) {
@@ -91,7 +91,9 @@ export function TopNav() {
           tab={tab}
           active={tab.key === view}
           onClick={() => {
-            if (tab.key === 'city' || tab.key === 'street') setView(tab.key);
+            if (tab.key === 'city' || tab.key === 'street' || tab.key === 'route') {
+              setView(tab.key);
+            }
           }}
         />
       ))}

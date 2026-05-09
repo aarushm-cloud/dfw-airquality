@@ -66,6 +66,12 @@ class CellAtResponse(BaseModel):
     in_bbox: bool
 
 
+class GeocodeSuggestion(BaseModel):
+    display_name: str
+    lat: float = Field(description="Latitude (cast from LocationIQ string)")
+    lon: float = Field(description="Longitude (cast from LocationIQ string)")
+
+
 class GeoJSONLineString(BaseModel):
     type: Literal["LineString"] = "LineString"
     coordinates: list[list[float]] = Field(description="Polyline as [[lon, lat], ...]")
