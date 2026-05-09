@@ -174,6 +174,32 @@
         "title": "CellResponse",
         "type": "object"
       },
+      "GeoJSONLineString": {
+        "properties": {
+          "coordinates": {
+            "description": "Polyline as [[lon, lat], ...]",
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "LineString",
+            "default": "LineString",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "coordinates"
+        ],
+        "title": "GeoJSONLineString",
+        "type": "object"
+      },
       "GridResponse": {
         "properties": {
           "avg_pm25": {
@@ -270,6 +296,86 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "RouteRequest": {
+        "description": "Body for POST /api/route \u2014 two human-readable addresses inside DFW.\n\nThe geocoder runs server-side, so the API consumer doesn't need to know\ncoordinates. `alpha` (the cleanest-route tuning knob in\nconfig.ROUTE_PM_ALPHA) is intentionally not exposed here \u2014 it's an\ninternal weighting parameter, not a user-facing input.",
+        "properties": {
+          "end": {
+            "description": "End address (street, landmark, or neighborhood).",
+            "minLength": 1,
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start address (street, landmark, or neighborhood).",
+            "minLength": 1,
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "RouteRequest",
+        "type": "object"
+      },
+      "RouteResponse": {
+        "properties": {
+          "cleanest": {
+            "$ref": "#/components/schemas/RouteStats"
+          },
+          "shortest": {
+            "$ref": "#/components/schemas/RouteStats"
+          },
+          "timestamp": {
+            "description": "PipelineSnapshot timestamp the route was computed against",
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cleanest",
+          "shortest",
+          "timestamp"
+        ],
+        "title": "RouteResponse",
+        "type": "object"
+      },
+      "RouteStats": {
+        "properties": {
+          "distance_m": {
+            "title": "Distance M",
+            "type": "number"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJSONLineString"
+          },
+          "mean_pm25": {
+            "description": "Exposure-weighted mean PM2.5 along the path (\u00b5g/m\u00b3)",
+            "title": "Mean Pm25",
+            "type": "number"
+          },
+          "total_exposure": {
+            "description": "\u03a3 pm_midpoint \u00d7 edge_length (\u00b5g/m\u00b3\u00b7m)",
+            "title": "Total Exposure",
+            "type": "number"
+          },
+          "walk_seconds": {
+            "description": "Walk time at 1.4 m/s",
+            "title": "Walk Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "geometry",
+          "distance_m",
+          "mean_pm25",
+          "walk_seconds",
+          "total_exposure"
+        ],
+        "title": "RouteStats",
         "type": "object"
       },
       "SensorReading": {
@@ -562,6 +668,48 @@
         "summary": "Health",
         "tags": [
           "meta"
+        ]
+      }
+    },
+    "/api/route": {
+      "post": {
+        "description": "Compare a length-only shortest path against a PM-weighted cleanest\npath between two DFW addresses. Both addresses are geocoded server-side\nvia LocationIQ and snapped to the nearest node on the OSM walking graph.\n\nFirst call after a cold boot pays the OSMnx walking-graph load (set\nAERIA_PRELOAD_GRAPH=1 to amortize that at startup). Subsequent calls\nride the in-process graph + 5-min grid cache and respond in <1s.",
+        "operationId": "post_route_api_route_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Route",
+        "tags": [
+          "route"
         ]
       }
     },

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -62,3 +64,22 @@ class CellAtResponse(BaseModel):
     row: int | None
     col: int | None
     in_bbox: bool
+
+
+class GeoJSONLineString(BaseModel):
+    type: Literal["LineString"] = "LineString"
+    coordinates: list[list[float]] = Field(description="Polyline as [[lon, lat], ...]")
+
+
+class RouteStats(BaseModel):
+    geometry: GeoJSONLineString
+    distance_m: float
+    mean_pm25: float = Field(description="Exposure-weighted mean PM2.5 along the path (µg/m³)")
+    walk_seconds: float = Field(description="Walk time at 1.4 m/s")
+    total_exposure: float = Field(description="Σ pm_midpoint × edge_length (µg/m³·m)")
+
+
+class RouteResponse(BaseModel):
+    cleanest: RouteStats
+    shortest: RouteStats
+    timestamp: str = Field(description="PipelineSnapshot timestamp the route was computed against")

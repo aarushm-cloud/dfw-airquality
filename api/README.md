@@ -37,19 +37,39 @@ Without the flag the backend behaves exactly as before — lazy load on first
 request. The warmup runs on a daemon thread, so `/api/health` and other
 endpoints stay responsive while it's priming.
 
+### Optional: pre-load the walking graph
+
+`AERIA_PRELOAD_GRAPH=1` triggers `engine.router.preload_graph()` in a
+background thread at startup so the first `/api/route` request doesn't pay
+the OSM walking-graph cold-load cost (typically 60–180 s on first run, then
+5–15 s reloads from the on-disk graphml cache). Independent from
+`AERIA_WARMUP` — set both for full warmup.
+
+```bash
+AERIA_WARMUP=1 AERIA_PRELOAD_GRAPH=1 uvicorn api.main:app --reload --port 8000
+```
+
+Preload failures are non-fatal — they're logged via the `aeria.router`
+named logger and the first `/api/route` call retries the load
+synchronously.
+
 ## Environment
 
 | Variable | Default | Description |
 |---|---|---|
 | `AERIA_WARMUP` | unset | If set to `1`, pre-populates the grid cache in a background thread at startup. |
+| `AERIA_PRELOAD_GRAPH` | unset | If set to `1`, pre-loads the OSM walking graph (used by `/api/route`) in a background thread at startup. |
 | `AERIA_CORS_ORIGINS` | unset | Comma-separated list of additional CORS origins. Localhost dev origins (`http://localhost:5173` and `http://127.0.0.1:5173`) are always included. Set in deploy environments to add the production frontend origin (e.g. `https://aeria.vercel.app`). |
+| `LOCATIONIQ_API_KEY` | required for `/api/route` | LocationIQ forward-geocoding key. Free tier (5,000/day) is sufficient. |
 
 The resolved CORS allowlist is logged once at module load as `[cors] active origins: ...` so a misconfigured deploy is immediately obvious in the logs.
 
 ## Endpoints
 
-All endpoints are GET-only and live under `/api`. Responses are cached in
-memory for 5 minutes (matches the pipeline's existing refresh cadence).
+All endpoints live under `/api`. GET responses are cached in memory for
+5 minutes (matches the pipeline's existing refresh cadence). The single
+POST endpoint (`/api/route`) is uncached at this layer — it reuses the
+shared grid snapshot's cache for PM data.
 
 ### `GET /api/sensors`
 
@@ -126,6 +146,56 @@ cached pipeline snapshot as `/api/grid`.
 ```
 
 Returns 404 if the zip is unknown or falls outside the Dallas bounding box.
+
+### `POST /api/route`
+
+Compare a length-only shortest walking path against a PM-weighted cleanest
+path between two DFW addresses. Both addresses are forward-geocoded
+server-side via LocationIQ; PM₂.₅ is sampled from the same grid snapshot
+`/api/grid` returns. First call after a cold boot pays the OSM
+walking-graph load (set `AERIA_PRELOAD_GRAPH=1` to amortize at startup).
+
+Request:
+
+```json
+{
+  "start": "Mockingbird Station Dallas",
+  "end": "Klyde Warren Park Dallas"
+}
+```
+
+Response:
+
+```json
+{
+  "cleanest": {
+    "geometry": {
+      "type": "LineString",
+      "coordinates": [[-96.7764, 32.8377], [-96.78, 32.83], ...]
+    },
+    "distance_m": 6342.0,
+    "mean_pm25": 7.8,
+    "walk_seconds": 4530.0,
+    "total_exposure": 49467.6
+  },
+  "shortest": {
+    "geometry": { "type": "LineString", "coordinates": [...] },
+    "distance_m": 5418.0,
+    "mean_pm25": 9.6,
+    "walk_seconds": 3870.0,
+    "total_exposure": 52012.8
+  },
+  "timestamp": "2026-05-08T17:23:11+00:00"
+}
+```
+
+Errors:
+
+- `400` — could not geocode an address.
+- `404` — address resolves outside the DFW bbox, or no walking path exists.
+- `503` — walking graph not yet loaded (transient on cold boot).
+- `502` — generic routing pipeline failure.
+- `422` — malformed request body (FastAPI default).
 
 ### `GET /api/health`
 
