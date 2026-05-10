@@ -18,10 +18,12 @@ export function RouteLabPanel() {
   const status = useRouteStore((s) => s.status);
   const errorMessage = useRouteStore((s) => s.errorMessage);
   const submit = useRouteStore((s) => s.submit);
+  const routingDisabled = useRouteStore((s) => s.routingDisabled);
 
   if (view !== 'route') return null;
 
   const submitting = status === 'submitting';
+  const disabled = submitting || routingDisabled;
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -47,6 +49,23 @@ export function RouteLabPanel() {
         </div>
       </div>
 
+      {routingDisabled && (
+        <div
+          role="status"
+          className={[
+            'mb-4 p-2',
+            'border border-gold/40 rounded-sm bg-gold/5',
+          ].join(' ')}
+        >
+          <div className="font-mono uppercase text-[10px] tracking-wider text-gold">
+            Preview only
+          </div>
+          <div className="font-mono text-[10px] tracking-wider text-stone-400 mt-1 normal-case">
+            Run locally for live routing.
+          </div>
+        </div>
+      )}
+
       <div className="font-mono uppercase text-[10px] tracking-wider text-stone-400 mb-3">
         Cleanest path optimizer
       </div>
@@ -59,7 +78,7 @@ export function RouteLabPanel() {
           onChange={setStartInput}
           onPick={pickStart}
           placeholder="e.g. Mockingbird Station Dallas"
-          disabled={submitting}
+          disabled={disabled}
         />
         <AddressInput
           inputId="route-end"
@@ -68,11 +87,11 @@ export function RouteLabPanel() {
           onChange={setEndInput}
           onPick={pickEnd}
           placeholder="e.g. Klyde Warren Park Dallas"
-          disabled={submitting}
+          disabled={disabled}
         />
         <button
           type="submit"
-          disabled={submitting}
+          disabled={disabled}
           className={[
             'mt-1 px-3 py-2',
             'border border-gold/60 rounded-sm',
@@ -81,14 +100,14 @@ export function RouteLabPanel() {
             'hover:bg-gold/10 hover:border-gold',
             'focus:outline-none focus:border-gold',
             'transition-colors',
-            'disabled:cursor-wait disabled:opacity-60',
+            'disabled:cursor-not-allowed disabled:opacity-60',
           ].join(' ')}
         >
           {submitting ? 'Finding route…' : 'Find route'}
         </button>
       </form>
 
-      {errorMessage && (
+      {errorMessage && !routingDisabled && (
         <div
           role="alert"
           className={[

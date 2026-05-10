@@ -149,12 +149,15 @@ export type RouteResponse = {
   timestamp: string;
 };
 
-// Carries the backend-mapped status code and detail string so callers can
+// Carries the backend-mapped status code and detail body so callers can
 // distinguish 400/404/422/502/503 without re-parsing the body. Mirrors the
-// ZipNotCoveredError pattern.
+// ZipNotCoveredError pattern. `detail` stays loosely-typed because FastAPI's
+// HTTPException allows either a string or a structured dict — the routing-
+// disabled demo case ships {code, message}, while every other error path
+// stays a plain string.
 export class RouteApiError extends Error {
-  constructor(public status: number, public detail: string) {
-    super(detail);
+  constructor(public status: number, public detail: unknown) {
+    super(typeof detail === 'string' ? detail : `HTTP ${status}`);
     this.name = 'RouteApiError';
   }
 }
@@ -166,10 +169,10 @@ export async function postRoute(req: RouteRequest): Promise<RouteResponse> {
     body: JSON.stringify(req),
   });
   if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
+    let detail: unknown = `HTTP ${res.status}`;
     try {
       const body = await res.json();
-      if (body?.detail) detail = String(body.detail);
+      if (body?.detail !== undefined) detail = body.detail;
     } catch {
       // body wasn't JSON — keep the generic detail
     }

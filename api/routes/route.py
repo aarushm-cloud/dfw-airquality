@@ -1,4 +1,5 @@
 import logging
+import os
 
 from cachetools import TTLCache
 from fastapi import APIRouter, HTTPException
@@ -52,6 +53,23 @@ def post_route(req: RouteRequest) -> RouteResponse:
     AERIA_PRELOAD_GRAPH=1 to amortize that at startup). Subsequent calls
     ride the in-process graph + 5-min grid cache and respond in <1s.
     """
+    # Demo-mode short-circuit. The deployed free-tier instance can't host
+    # the 569 MB walking graph, so this returns 503 with a structured
+    # detail the frontend renders as a "preview only" banner. Local dev
+    # leaves AERIA_ROUTING_ENABLED unset → the check passes and routing
+    # works normally.
+    if os.getenv("AERIA_ROUTING_ENABLED", "1") != "1":
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "routing_disabled",
+                "message": (
+                    "Route Lab is preview-only in this deployment. "
+                    "Run locally for live route comparison."
+                ),
+            },
+        )
+
     try:
         snap = get_cached_snapshot()
     except ValueError as e:

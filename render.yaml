@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: aeria-api
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: AERIA_ROUTING_ENABLED
+        value: "0"
+      - key: AERIA_CORS_ORIGINS
+        sync: false
+      - key: LOCATIONIQ_API_KEY
+        sync: false
+      - key: PURPLEAIR_API_KEY
+        sync: false
+      - key: OPENAQ_API_KEY
+        sync: false
+      - key: OPENWEATHERMAP_API_KEY
+        sync: false
+      - key: TOMTOM_API_KEY
+        sync: false
