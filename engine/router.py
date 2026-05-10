@@ -201,6 +201,7 @@ def _fetch_and_cache_graph():
     import osmnx as ox  # imported lazily so module import doesn't require it
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    ox.settings.cache_folder = str(CACHE_DIR / "osmnx_http")
     perf_logger.info("Fetching DFW walking graph from OSM (one-time, ~60–180s)...")
     t0 = time.time()
     bbox = (BBOX["west"], BBOX["south"], BBOX["east"], BBOX["north"])

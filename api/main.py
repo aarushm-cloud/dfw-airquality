@@ -5,8 +5,11 @@ Run from the project root:
 
 Swagger UI: http://localhost:8000/docs
 
-Optional startup flags (independent, mix and match):
-  AERIA_WARMUP=1         — pre-populate the grid cache in a daemon thread.
+The grid cache is primed in a background daemon thread on every startup so
+/api/health reports cache_warm=true within ~5–15s and the frontend's gate on
+cache_warm doesn't deadlock on cold boot.
+
+Optional startup flags:
   AERIA_PRELOAD_GRAPH=1  — pre-load the OSM walking graph in a daemon
                             thread (item 2 of Phase 5; first /api/route
                             otherwise pays the cold-load cost).
@@ -16,7 +19,9 @@ import logging
 import os
 import threading
 import time
+from contextlib import asynccontextmanager
 
+from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -51,35 +56,13 @@ def resolve_cors_origins() -> list[str]:
     return origins
 
 
-app = FastAPI(
-    title="AERIA · DFW Air Quality API",
-    description="JSON wrapper around the DFW air quality pipeline (PurpleAir + OpenAQ + IDW + traffic/wind adjustment).",
-    version="0.1.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=resolve_cors_origins(),
-    allow_credentials=False,
-    allow_methods=["GET", "POST"],
-    allow_headers=["*"],
-)
-
-app.include_router(sensors_router, prefix="/api")
-app.include_router(grid_router, prefix="/api")
-app.include_router(cells_router, prefix="/api")
-app.include_router(health_router, prefix="/api")
-app.include_router(route_router, prefix="/api")
-app.include_router(geocode_router, prefix="/api")
-
-
 def _warmup_pipeline() -> None:
     try:
-        logger.info("AERIA_WARMUP=1 — priming grid cache in background...")
+        logger.info("priming grid cache in background...")
         get_cached_snapshot()
-        logger.info("AERIA_WARMUP — grid cache primed.")
+        logger.info("grid cache primed.")
     except Exception as e:
-        logger.warning("AERIA_WARMUP — pipeline prime failed: %s", e)
+        logger.warning("pipeline prime failed: %s", e)
 
 
 def _preload_walking_graph() -> None:
@@ -101,18 +84,17 @@ def _preload_walking_graph() -> None:
         router_logger.warning("AERIA_PRELOAD_GRAPH — preload failed: %s", e)
 
 
-@app.on_event("startup")
-def _maybe_warmup() -> None:
-    if os.getenv("AERIA_WARMUP", "0") == "1":
-        # Run in a daemon thread so startup doesn't block the event loop.
-        # Endpoints stay responsive (e.g. /api/health) while the prime runs.
-        threading.Thread(target=_warmup_pipeline, name="aeria-warmup", daemon=True).start()
+def _start_warmup() -> None:
+    # Run in a daemon thread so startup doesn't block the event loop.
+    # Endpoints stay responsive (e.g. /api/health) while the prime runs.
+    # Always-on so Render free-tier cold boots don't deadlock the frontend's
+    # cache_warm gate.
+    threading.Thread(target=_warmup_pipeline, name="aeria-warmup", daemon=True).start()
 
 
-@app.on_event("startup")
 def _maybe_preload_graph() -> None:
     if os.getenv("AERIA_PRELOAD_GRAPH", "0") == "1":
-        # Same daemon-thread pattern as _maybe_warmup. Walking-graph load
+        # Same daemon-thread pattern as _start_warmup. Walking-graph load
         # can take 60–180s on a cold cache, so doing this synchronously
         # would block uvicorn's event loop for that whole window.
         threading.Thread(
@@ -120,6 +102,49 @@ def _maybe_preload_graph() -> None:
             name="aeria-preload-graph",
             daemon=True,
         ).start()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Startup: spawn both warmups as daemon threads and yield immediately so
+    # endpoints come up while the work runs in the background. No shutdown
+    # work needed — daemon threads die with the parent process.
+    _start_warmup()
+    _maybe_preload_graph()
+    yield
+
+
+app = FastAPI(
+    title="AERIA · DFW Air Quality API",
+    description="JSON wrapper around the DFW air quality pipeline (PurpleAir + OpenAQ + IDW + traffic/wind adjustment).",
+    version="0.1.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=resolve_cors_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+# Registered after CORS so it's outermost on the response path: CORS headers
+# are set first, then the body is compressed with Content-Length recomputed
+# on the compressed payload. Falls back to identity for clients that don't
+# send Accept-Encoding: br.
+app.add_middleware(
+    BrotliMiddleware,
+    quality=4,
+    minimum_size=500,
+)
+
+app.include_router(sensors_router, prefix="/api")
+app.include_router(grid_router, prefix="/api")
+app.include_router(cells_router, prefix="/api")
+app.include_router(health_router, prefix="/api")
+app.include_router(route_router, prefix="/api")
+app.include_router(geocode_router, prefix="/api")
 
 
 @app.get("/", tags=["meta"])

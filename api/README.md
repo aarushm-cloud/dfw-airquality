@@ -23,30 +23,23 @@ The server reads the same `.env` file as the Streamlit app (see `CLAUDE.md`),
 so `PURPLEAIR_API_KEY`, `OPENAQ_API_KEY`, `OPENWEATHERMAP_API_KEY`, and
 `TOMTOM_API_KEY` must all be set.
 
-### Optional: warm the cache at startup
+### Grid cache warmup (automatic)
 
-Setting `AERIA_WARMUP=1` before launching uvicorn kicks off the full grid
-pipeline in a background thread at startup, so the first user request is
-instant instead of paying the ~20 s cold-start cost.
-
-```bash
-AERIA_WARMUP=1 uvicorn api.main:app --reload --port 8000
-```
-
-Without the flag the backend behaves exactly as before — lazy load on first
-request. The warmup runs on a daemon thread, so `/api/health` and other
-endpoints stay responsive while it's priming.
+The grid pipeline is primed in a background daemon thread on every startup,
+so `/api/health` reports `cache_warm=true` within ~5–15 s and the frontend's
+`cache_warm` gate doesn't deadlock on cold boot. No env var required. The
+warmup runs on a daemon thread, so `/api/health` and other endpoints stay
+responsive while it's priming.
 
 ### Optional: pre-load the walking graph
 
 `AERIA_PRELOAD_GRAPH=1` triggers `engine.router.preload_graph()` in a
 background thread at startup so the first `/api/route` request doesn't pay
 the OSM walking-graph cold-load cost (typically 60–180 s on first run, then
-5–15 s reloads from the on-disk graphml cache). Independent from
-`AERIA_WARMUP` — set both for full warmup.
+5–15 s reloads from the on-disk graphml cache).
 
 ```bash
-AERIA_WARMUP=1 AERIA_PRELOAD_GRAPH=1 uvicorn api.main:app --reload --port 8000
+AERIA_PRELOAD_GRAPH=1 uvicorn api.main:app --reload --port 8000
 ```
 
 Preload failures are non-fatal — they're logged via the `aeria.router`
@@ -57,7 +50,6 @@ synchronously.
 
 | Variable | Default | Description |
 |---|---|---|
-| `AERIA_WARMUP` | unset | If set to `1`, pre-populates the grid cache in a background thread at startup. |
 | `AERIA_PRELOAD_GRAPH` | unset | If set to `1`, pre-loads the OSM walking graph (used by `/api/route`) in a background thread at startup. |
 | `AERIA_CORS_ORIGINS` | unset | Comma-separated list of additional CORS origins. Localhost dev origins (`http://localhost:5173` and `http://127.0.0.1:5173`) are always included. Set in deploy environments to add the production frontend origin (e.g. `https://aeria.vercel.app`). |
 | `LOCATIONIQ_API_KEY` | required for `/api/route` | LocationIQ forward-geocoding key. Free tier (5,000/day) is sufficient. |
@@ -242,7 +234,7 @@ Does no I/O.
 ```
 
 `cache_warm` flips to `true` once the grid pipeline has been run at least
-once (either by a real request or by `AERIA_WARMUP=1`).
+once. The startup warmup primes it within ~5–15 s of boot.
 
 ## Development tools
 

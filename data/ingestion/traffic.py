@@ -18,9 +18,13 @@ load_dotenv()
 
 TOMTOM_FLOW_URL = "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/18/json"
 
-# How many sample points along each axis — 8x8 = 64 API calls per refresh.
-# Stays well within the 2,500/day free tier limit.
-SAMPLE_GRID = 8
+# How many sample points along each axis — 5x5 = 25 API calls per refresh.
+# At the 30-min API cache TTL, max possible is 48 × 25 = 1,200 calls/day,
+# well within TomTom's 2,500/day shared free-tier limit. 5×5 captures all
+# major DFW freeway corridors (I-35, I-30, I-635 spaced ~5–10 km apart);
+# 4×4 would alias them. Resolution loss is smoothed by the K=5 nearest-
+# neighbor blending downstream in engine/interpolation.py.
+SAMPLE_GRID = 5
 
 
 def _congestion_score(current_speed: float, free_flow_speed: float) -> float:

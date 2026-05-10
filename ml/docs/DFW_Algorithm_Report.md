@@ -37,11 +37,11 @@ congestion = clamp(1 - (current_speed / free_flow_speed), 0, 1)
 
 ### For the Environmental Scientist
 
-TomTom provides two speeds for each road segment: what cars are doing *right now* and what they'd do on a clear road. If cars are crawling at 15 mph on a road that normally flows at 60 mph, that's 75% congestion — and congested, slow-moving traffic means vehicles are idling longer and emitting more particulate matter per mile of road. A score of 0 means free-flowing traffic (minimal extra emissions), and 1.0 means a complete standstill (maximum emissions). This is sampled at 64 points (8x8 grid) across Dallas every 5 minutes.
+TomTom provides two speeds for each road segment: what cars are doing *right now* and what they'd do on a clear road. If cars are crawling at 15 mph on a road that normally flows at 60 mph, that's 75% congestion — and congested, slow-moving traffic means vehicles are idling longer and emitting more particulate matter per mile of road. A score of 0 means free-flowing traffic (minimal extra emissions), and 1.0 means a complete standstill (maximum emissions). This is sampled at 25 points (5x5 grid) across Dallas every 30 minutes.
 
 ### For the Programmer
 
-Simple ratio inversion: `1 - (current / freeflow)`, clipped to `[0, 1]` via `np.clip`. The `free_flow_speed <= 0` guard returns 0.0 to handle edge cases where TomTom returns no road data for a point. The 8x8 sampling grid (`SAMPLE_GRID = 8`) produces 64 API calls per refresh — well within TomTom's 2,500/day free tier.
+Simple ratio inversion: `1 - (current / freeflow)`, clipped to `[0, 1]` via `np.clip`. The `free_flow_speed <= 0` guard returns 0.0 to handle edge cases where TomTom returns no road data for a point. The 5x5 sampling grid (`SAMPLE_GRID = 5`) produces 25 API calls per refresh; at the 30-min API cache TTL, max possible is 48 × 25 = 1,200 calls/day — half of TomTom's 2,500/day free tier.
 
 ---
 
@@ -244,7 +244,7 @@ blended_congestion = SUM(weight_k * congestion_k) / SUM(weight_k)
 
 ### For the Environmental Scientist
 
-The dashboard samples traffic at 64 points across Dallas (an 8x8 grid). But the heatmap has 3,600 grid cells. For each heatmap cell, we need a congestion estimate, and using just the single nearest traffic point would create blocky artifacts — you'd see sharp jumps at the boundaries between traffic sample zones.
+The dashboard samples traffic at 25 points across Dallas (a 5x5 grid). But the heatmap has 3,600 grid cells. For each heatmap cell, we need a congestion estimate, and using just the single nearest traffic point would create blocky artifacts — you'd see sharp jumps at the boundaries between traffic sample zones.
 
 Instead, each cell looks at the 5 closest traffic points and takes a distance-weighted average of their congestion scores. Closer traffic points count more (weight = 1/distance squared). This produces a smooth congestion surface. The distance-decay multiplier (algorithm #6) is then applied based on the distance to the *nearest* of those 5 points — because what matters for air quality is how close you actually are to a road, not an average distance.
 

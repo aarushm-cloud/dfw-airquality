@@ -31,7 +31,7 @@ dfw-airquality/
 │   │   ├── purpleair.py             # PurpleAir live ingestion (EPA-corrected)
 │   │   ├── openaq.py                # OpenAQ v3 ingestion (secondary PM2.5 source)
 │   │   ├── weather.py               # OpenWeatherMap ingestion (live wind)
-│   │   ├── traffic.py               # TomTom ingestion (8×8 sample grid, live)
+│   │   ├── traffic.py               # TomTom ingestion (5×5 sample grid, live)
 │   │   └── history.py               # Live dashboard snapshot accumulator
 │   ├── spatial/
 │   │   └── spatial_features.py      # OSMnx highway-distance feature builder

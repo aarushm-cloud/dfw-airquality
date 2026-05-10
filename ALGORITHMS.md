@@ -175,7 +175,7 @@ else:
     congestion = clamp(1 - current_speed / free_flow_speed, 0, 1)
 ```
 
-TomTom returns two speeds for each segment: what cars are doing right now and what they'd do on a clear road. Crawling at 15 mph on a road that normally flows at 60 mph is 75% congestion. A score of 0 = free flow, 1 = full standstill. Sampling happens at 64 points (8 × 8 grid) across the bbox each refresh, well within TomTom's 2,500/day free tier.
+TomTom returns two speeds for each segment: what cars are doing right now and what they'd do on a clear road. Crawling at 15 mph on a road that normally flows at 60 mph is 75% congestion. A score of 0 = free flow, 1 = full standstill. Sampling happens at 25 points (5 × 5 grid) across the bbox each refresh; at the 30-min API cache TTL that caps daily usage at 1,200 calls — half of TomTom's 2,500/day free tier.
 
 ### 4b. Exponential weighting
 
@@ -241,7 +241,7 @@ For each grid cell:
 
 #### For the Environmental Scientist
 
-The traffic data is sparse — only 64 sample points across the whole metro — but the heatmap has 3,600 cells. If each cell snapped to its single nearest traffic point, you'd see blocky Voronoi-cell artefacts: sharp jumps in congestion at the boundaries between sample zones.
+The traffic data is sparse — only 25 sample points across the whole metro — but the heatmap has 3,600 cells. If each cell snapped to its single nearest traffic point, you'd see blocky Voronoi-cell artefacts: sharp jumps in congestion at the boundaries between sample zones.
 
 Blending the 5 closest traffic points by inverse-square distance smooths that surface. For the *decay* multiplier, we still use the distance to the very nearest neighbour rather than an average — what matters for air quality is how close you actually are to a road, not some smoothed-out distance.
 
@@ -492,6 +492,6 @@ This feature is computed by the training pipeline today but is not yet wired int
 | Gaussian sigma | 1.5 cells | [viz/heatmap.py:139](viz/heatmap.py#L139) | Avoid colour banding |
 | Heatmap opacity | 0.35 | [viz/heatmap.py:145](viz/heatmap.py#L145) | Basemap visibility |
 | `POPUP_GRID_SIZE` | 30 | [viz/heatmap.py:174](viz/heatmap.py#L174) | ~900 popups vs. 3,600 cells |
-| `SAMPLE_GRID` (traffic) | 8 (8×8 = 64 points) | [data/ingestion/traffic.py:23](data/ingestion/traffic.py#L23) | Stays inside TomTom's 2,500/day free tier |
+| `SAMPLE_GRID` (traffic) | 5 (5×5 = 25 points) | [data/ingestion/traffic.py:23](data/ingestion/traffic.py#L23) | At 30-min API TTL, 48 × 25 = 1,200/day — half of TomTom's 2,500/day free tier |
 | Cosine guard ε | 1e-6 deg | [engine/adjustments.py:102](engine/adjustments.py#L102) | Co-location guard for `atan2(0,0)` |
 | Distance ε | 1e-10 | [engine/interpolation.py:68](engine/interpolation.py#L68) | Divide-by-zero guard for IDW |

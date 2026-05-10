@@ -1,5 +1,6 @@
 import logging
 
+from cachetools import TTLCache
 from fastapi import APIRouter, HTTPException
 
 from engine.router import (
@@ -16,6 +17,19 @@ from api.schemas.responses import GeoJSONLineString, RouteResponse, RouteStats
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Endpoint-layer route cache. Key is the normalized address pair; the
+# underlying grid's freshness is validated by comparing snapshot
+# timestamps on the cached value at lookup time. This keeps hit rates
+# high across grid refreshes for unchanged inputs while guaranteeing
+# we never serve stats whose timestamp references a grid that no
+# longer exists.
+#
+# Concurrency note: cachetools.TTLCache is thread-safe for individual
+# operations but not for the check-then-write sequence below. Two
+# simultaneous misses on the same key will both call find_routes and
+# both write. Wasted work, but acceptable at portfolio scale.
+_route_cache: TTLCache = TTLCache(maxsize=1000, ttl=600)
 
 
 def _route_to_stats(r: Route) -> RouteStats:
@@ -47,6 +61,11 @@ def post_route(req: RouteRequest) -> RouteResponse:
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Pipeline failure: {e}")
 
+    cache_key = (req.start.strip().lower(), req.end.strip().lower())
+    cached = _route_cache.get(cache_key)
+    if cached is not None and cached.timestamp == snap.timestamp:
+        return cached
+
     try:
         result = find_routes(req.start, req.end, grid=snap)
     except GeocodeFailure as e:
@@ -70,8 +89,10 @@ def post_route(req: RouteRequest) -> RouteResponse:
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Routing pipeline failure: {e!r}")
 
-    return RouteResponse(
+    response = RouteResponse(
         cleanest=_route_to_stats(result.cleanest),
         shortest=_route_to_stats(result.shortest),
         timestamp=snap.timestamp,
     )
+    _route_cache[cache_key] = response
+    return response

@@ -22,12 +22,18 @@ router = APIRouter()
 
 # Cache window for the assembled pipeline snapshot.
 #
-# The Streamlit front-end (app.py:52-66) caches its own copy of each
-# upstream fetch with the same 300s TTL. The two caches are intentionally
-# independent — under simultaneous use, worst-case drift between the two
-# UIs is ~5 minutes, which is acceptable given upstream sources only
-# refresh every 10–30 minutes anyway. See app.py for the matching note.
-_TTL_SECONDS = 300
+# Bumped from 300s to 1800s as part of the Phase 5 caching pass: at
+# SAMPLE_GRID=5 (25 TomTom calls per refresh) and a 30-min TTL, daily
+# usage caps at 48 × 25 = 1,200 calls — half of TomTom's 2,500/day shared
+# free-tier limit, regardless of frontend traffic.
+#
+# app.py's Streamlit cache stays at 300s on purpose: that file is locked
+# from modification (PROJECT_STATE.md), and Streamlit sessions are light
+# and transient, so cache parity isn't worth the policy violation. Worst-
+# case drift between the AERIA UI and the legacy Streamlit dashboard is
+# ~25 minutes, which is fine since upstream sources refresh every
+# 10–30 minutes anyway.
+_TTL_SECONDS = 1800
 
 
 _cache: dict = {"ts": 0.0, "value": None}
@@ -97,7 +103,7 @@ def get_grid() -> GridResponse:
     """Full IDW + traffic/wind-adjusted PM2.5 grid over the Dallas bounding box.
 
     Slow on first call (~5-15s end-to-end including all upstream fetches);
-    cached for 5 minutes after that.
+    cached for 30 minutes after that.
     """
     try:
         snap = get_cached_snapshot()

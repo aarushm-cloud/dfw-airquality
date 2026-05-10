@@ -177,6 +177,98 @@ def test_post_route_wrong_field_types_return_422():
 
 
 # ---------------------------------------------------------------------------
+# Endpoint-layer route cache (Phase 5 item 4)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def empty_route_cache():
+    """Reset the module-level route cache before and after each test that
+    exercises caching behaviour. Cleanup runs in both directions so a
+    cached entry can never leak into the rest of the suite."""
+    from api.routes.route import _route_cache
+    _route_cache.clear()
+    yield _route_cache
+    _route_cache.clear()
+
+
+def test_route_cache_hits_on_repeated_request(patched_snapshot, empty_route_cache):
+    """Two POSTs with the same start/end against the same grid snapshot
+    must call find_routes only once; the second response must equal the first."""
+    with patch(
+        "api.routes.route.find_routes",
+        return_value=_stub_comparison(),
+    ) as mock_find:
+        body = {"start": "Mockingbird Station Dallas", "end": "Klyde Warren Park Dallas"}
+        r1 = client.post("/api/route", json=body)
+        r2 = client.post("/api/route", json=body)
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json() == r2.json()
+    assert mock_find.call_count == 1
+
+
+def test_route_cache_normalizes_address_casing(patched_snapshot, empty_route_cache):
+    """Inputs that differ only in casing or surrounding whitespace must
+    collapse to the same cache key — so a uppercase-then-lowercase pair
+    only computes once."""
+    with patch(
+        "api.routes.route.find_routes",
+        return_value=_stub_comparison(),
+    ) as mock_find:
+        client.post(
+            "/api/route",
+            json={"start": "Mockingbird Station", "end": "Klyde Warren Park"},
+        )
+        client.post(
+            "/api/route",
+            json={"start": "  mockingbird station  ", "end": "klyde warren park"},
+        )
+    assert mock_find.call_count == 1
+
+
+def test_route_cache_distinct_keys(patched_snapshot, empty_route_cache):
+    """Different address pairs must each compute independently."""
+    with patch(
+        "api.routes.route.find_routes",
+        return_value=_stub_comparison(),
+    ) as mock_find:
+        client.post("/api/route", json={"start": "Pair One Start", "end": "Pair One End"})
+        client.post("/api/route", json={"start": "Pair Two Start", "end": "Pair Two End"})
+    assert mock_find.call_count == 2
+
+
+def test_route_cache_invalidates_on_new_grid_snapshot(empty_route_cache):
+    """When the underlying grid snapshot rotates between calls, the cached
+    entry's timestamp no longer matches and must be discarded — find_routes
+    runs again. After both calls, the cache holds exactly one entry for the
+    key (the T1 response overwrote the T0 entry in place)."""
+    snap_t0 = _stub_snapshot()
+    snap_t1 = PipelineSnapshot(
+        timestamp="2026-05-08T18:00:00+00:00",
+        sensor_df=snap_t0.sensor_df,
+        lats_2d=snap_t0.lats_2d,
+        lons_2d=snap_t0.lons_2d,
+        grid=snap_t0.grid,
+        confidence=snap_t0.confidence,
+        wind_speed=snap_t0.wind_speed,
+        wind_deg=snap_t0.wind_deg,
+    )
+    with patch(
+        "api.routes.route.get_cached_snapshot",
+        side_effect=[snap_t0, snap_t1],
+    ), patch(
+        "api.routes.route.find_routes",
+        return_value=_stub_comparison(),
+    ) as mock_find:
+        body = {"start": "Rotation Start", "end": "Rotation End"}
+        r1 = client.post("/api/route", json=body)
+        r2 = client.post("/api/route", json=body)
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert mock_find.call_count == 2
+    assert len(empty_route_cache) == 1
+    assert empty_route_cache[("rotation start", "rotation end")].timestamp == snap_t1.timestamp
+
+
+# ---------------------------------------------------------------------------
 # CORS preflight
 # ---------------------------------------------------------------------------
 
