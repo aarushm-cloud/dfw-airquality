@@ -13,3 +13,4 @@ ml/models/*.pkl
 UI_SUMMARY.md
 *.bak
 data/.cache/
+cache/
