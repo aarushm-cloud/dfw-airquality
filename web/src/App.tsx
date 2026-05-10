@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Loader } from './components/Loader';
 import { Scene } from './components/scene/Scene';
 import { HealthBadge } from './components/ui/HealthBadge';
 import { ZipSearch } from './components/ui/panels/ZipSearch';
@@ -87,6 +88,7 @@ function App() {
 
   return (
     <>
+      <Loader />
       <Scene />
       <LeftPanel />
       <RouteLabPanel />
