@@ -7,11 +7,14 @@ import { CellGrid } from './CellGrid';
 import { Particles } from './Particles';
 import { RoutePolylines } from './RoutePolylines';
 import { useSceneStore } from '../../../state/scene';
+import { panCameraTo } from '../cameraPan';
 
 export function CityScene() {
   const controlsRef = useRef<any>(null);
   const { camera } = useThree();
   const registerControls = useSceneStore((s) => s.registerControls);
+  const panRequest = useSceneStore((s) => s.panRequest);
+  const lastPanIdRef = useRef<number | null>(null);
 
   // Publish handles for DOM-side panners. On mount, restore any previously
   // captured snapshot synchronously so the first paint is at the saved pose
@@ -27,6 +30,21 @@ export function CityScene() {
     }
     return () => registerControls(null, null);
   }, [camera, registerControls]);
+
+  // Consume pan requests emitted by grid.ts. Dedupe by requestedAt so
+  // StrictMode double-invokes don't double-pan, and a stale request sitting
+  // in the store after a city→street→city round-trip doesn't replay on
+  // remount.
+  useEffect(() => {
+    if (!panRequest) return;
+    if (!controlsRef.current) return;
+    if (lastPanIdRef.current === panRequest.requestedAt) return;
+    lastPanIdRef.current = panRequest.requestedAt;
+    panCameraTo(controlsRef.current, camera, {
+      x: panRequest.worldX,
+      z: panRequest.worldZ,
+    });
+  }, [panRequest, camera]);
 
   return (
     <>

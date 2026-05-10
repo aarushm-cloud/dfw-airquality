@@ -19,7 +19,7 @@ type Phase = 'hidden' | 'loading' | 'dismissing' | 'dismissed';
 const STATUS_LINES = ['Loading sensors', 'Building grid', 'Reading traffic'] as const;
 const STATUS_DELAYS_MS = [0, 1400, 2800];
 
-function LoaderContent({ dismissing = false }: { dismissing?: boolean }) {
+export function LoaderContent({ dismissing = false }: { dismissing?: boolean }) {
   return (
     <div
       role="status"

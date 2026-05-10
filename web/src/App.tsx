@@ -1,12 +1,9 @@
-import { useEffect } from 'react';
-import { Loader } from './components/Loader';
-import { Scene } from './components/scene/Scene';
+import { lazy, Suspense, useEffect } from 'react';
+import { Loader, LoaderContent } from './components/Loader';
 import { HealthBadge } from './components/ui/HealthBadge';
 import { ZipSearch } from './components/ui/panels/ZipSearch';
 import { CellInfoCard } from './components/ui/panels/CellInfoCard';
 import { LeftPanel } from './components/ui/panels/LeftPanel';
-import { RouteLabPanel } from './components/ui/panels/RouteLabPanel';
-import { RouteStatsCard } from './components/ui/panels/RouteStatsCard';
 import { TopStatusBar } from './components/ui/chrome/TopStatusBar';
 import { TopNav } from './components/ui/chrome/TopNav';
 import { BreadcrumbFooter } from './components/ui/chrome/BreadcrumbFooter';
@@ -16,6 +13,20 @@ import { useConnection } from './state/connection';
 import { useGrid } from './state/grid';
 import { useSensorsStore } from './state/sensors';
 import { useViewStore } from './state/view';
+
+const Scene = lazy(() =>
+  import('./components/scene/Scene').then((m) => ({ default: m.Scene })),
+);
+const RouteLabPanel = lazy(() =>
+  import('./components/ui/panels/RouteLabPanel').then((m) => ({
+    default: m.RouteLabPanel,
+  })),
+);
+const RouteStatsCard = lazy(() =>
+  import('./components/ui/panels/RouteStatsCard').then((m) => ({
+    default: m.RouteStatsCard,
+  })),
+);
 
 const HEALTH_POLL_INTERVAL_MS = 5_000;
 
@@ -89,14 +100,25 @@ function App() {
   return (
     <>
       <Loader />
-      <Scene />
+      <Suspense fallback={<LoaderContent />}>
+        <Scene />
+      </Suspense>
       <LeftPanel />
-      <RouteLabPanel />
+      {/* Route Lab chunks load eagerly in parallel with main (Suspense
+          wraps the component, not a view-state gate). On-demand loading
+          would require lifting the view gate to App level — out of scope
+          for item 6. The fallback is null because the components self-
+          gate on view !== 'route' and render nothing in the common case. */}
+      <Suspense fallback={null}>
+        <RouteLabPanel />
+      </Suspense>
       <TopStatusBar />
       <TopNav />
       <ZipSearch />
       <CellInfoCard />
-      <RouteStatsCard />
+      <Suspense fallback={null}>
+        <RouteStatsCard />
+      </Suspense>
       <BreadcrumbFooter />
       <StreetEmptyState />
       <FadeOverlay />

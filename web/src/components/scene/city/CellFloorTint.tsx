@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useGrid } from '../../../state/grid';
 import { CELL_X, CELL_Z, GRID_SIZE, cellToWorld } from '../../../world/bbox';
-import { threeColorForPm25 } from '../../../world/aqi';
+import { threeColorForPm25 } from '../../../world/aqi3';
 
 const FLOOR_BASE_ALPHA = 0.5;
 const TOTAL_INSTANCES = GRID_SIZE * GRID_SIZE;

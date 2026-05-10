@@ -17,7 +17,6 @@ import {
 import { classifyPm25, type AqiCategory } from '../world/aqi';
 import { useSceneStore } from './scene';
 import { useViewStore } from './view';
-import { panCameraTo } from '../components/scene/cameraPan';
 
 export type GridStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -219,13 +218,14 @@ export const useGrid = create<GridState>((set, get) => ({
     // suppressed when not in city view, since the city camera isn't mounted.
     // Both 'city' and 'route' mount the city camera, so panning is safe in
     // either view. 'street' has its own fixed pose and would crash on a pan.
+    //
+    // Emit a request via the scene store rather than calling panCameraTo
+    // directly: that keeps cameraPan.ts (and its THREE import) out of the
+    // main chunk. CityScene consumes the request via useEffect.
     const v = useViewStore.getState().view;
-    if (pan && (v === 'city' || v === 'route')) {
-      const { controls, camera } = useSceneStore.getState();
-      if (controls && camera && cell) {
-        const world = cellToWorld({ row, col });
-        panCameraTo(controls, camera, world);
-      }
+    if (pan && cell && (v === 'city' || v === 'route')) {
+      const world = cellToWorld({ row, col });
+      useSceneStore.getState().requestPan(world.x, world.z);
     }
 
     if (!cell) {
