@@ -5,13 +5,14 @@ type Tab = {
   label: string;
   enabled: boolean;
   tooltip: string | null;
+  marker?: string;
 };
 
 const TABS: readonly Tab[] = [
   { key: 'city',   label: 'City overview', enabled: true,  tooltip: null },
   { key: 'street', label: 'Street view',   enabled: true,  tooltip: null },
   { key: 'time',   label: 'Time machine',  enabled: false, tooltip: 'Historical playback — coming soon' },
-  { key: 'route',  label: 'Route lab',     enabled: true,  tooltip: null },
+  { key: 'route',  label: 'Route lab',     enabled: true,  tooltip: null, marker: 'PROTOTYPE' },
 ] as const;
 
 function TabButton({ tab, active, onClick }: { tab: Tab; active: boolean; onClick: () => void }) {
@@ -32,6 +33,18 @@ function TabButton({ tab, active, onClick }: { tab: Tab; active: boolean; onClic
         ].join(' ')}
       >
         {tab.label}
+        {tab.marker && (
+          <span
+            className={[
+              'ml-2 inline-block',
+              'px-1.5 py-0.5',
+              'border border-gold/40 rounded-sm',
+              'font-mono uppercase text-[9px] tracking-wider text-gold',
+            ].join(' ')}
+          >
+            {tab.marker}
+          </span>
+        )}
       </button>
     );
   }

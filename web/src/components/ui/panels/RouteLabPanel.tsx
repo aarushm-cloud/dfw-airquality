@@ -47,6 +47,9 @@ export function RouteLabPanel() {
         <div className="font-mono uppercase text-[10px] tracking-wider text-stone-500 mt-1">
           Route lab
         </div>
+        <div className="font-mono text-[10px] tracking-wider text-stone-500 normal-case mt-1">
+          First route can take up to a minute
+        </div>
       </div>
 
       {routingDisabled && (
