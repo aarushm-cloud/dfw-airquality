@@ -59,7 +59,7 @@ The resolved CORS allowlist is logged once at module load as `[cors] active orig
 ## Endpoints
 
 All endpoints live under `/api`. GET responses are cached in memory for
-5 minutes (matches the pipeline's existing refresh cadence). The single
+30 minutes (matches the pipeline's existing refresh cadence). The single
 POST endpoint (`/api/route`) is uncached at this layer — it reuses the
 shared grid snapshot's cache for PM data.
 
@@ -258,7 +258,7 @@ changes. Not automated — the developer runs it on demand.
   here automatically the next time the cache expires.
 - Caching is a small in-memory TTL dict per route. `routes/grid.py` owns the
   shared pipeline snapshot; `routes/cells.py` reads from the same snapshot
-  so the two endpoints stay coherent within a single 5-minute window.
+  so the two endpoints stay coherent within a single 30-minute window.
 - CORS is built from two sources at startup: the always-included localhost
   dev origins and the comma-separated `AERIA_CORS_ORIGINS` env var. See the
   Environment section above for deploy configuration.
