@@ -10,6 +10,7 @@
 # is shared with the training pipeline (ml/training/collect_training_data.py)
 # so both pipelines apply byte-identical math.
 
+import logging
 import os
 import requests
 import pandas as pd
@@ -18,6 +19,17 @@ from config import BBOX, PURPLEAIR_BASE_URL
 from data.corrections import apply_epa_correction
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+# pm25_raw values above this are physically implausible for the DFW metro.
+# EPA "hazardous" starts at 250.4 µg/m³; the 2018 Camp Fire peaked near 300
+# in the Bay Area; Dallas has never seen anything close. Two PurpleAir
+# sensors observed at ~5000 raw on 2026-05-12 — classic A/B-channel
+# saturation, hardware fault. Filter on the raw value because the EPA
+# correction can pull a 5000 down to ~2600, but the upstream fault signal
+# is what matters.
+PM25_RAW_SATURATION_THRESHOLD = 400.0
 
 
 def get_api_key() -> str:
@@ -35,12 +47,42 @@ def get_api_key() -> str:
 __all__ = ["get_api_key", "fetch_sensors", "classify_pm25"]
 
 
-def fetch_sensors() -> pd.DataFrame:
+def _quarantine_saturated(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Split df into (kept, dropped) based on PM25_RAW_SATURATION_THRESHOLD.
+
+    pandas comparison treats NaN > x as False, so rows with NaN pm25_raw
+    are always kept. This is defensive: this module's output should never
+    have NaN pm25_raw (apply_epa_correction copies pm25 into pm25_raw at
+    the start), but the invariant matters if the helper is ever reused.
+
+    The dropped frame carries an extra `filter_reason` column for audit
+    and future extensibility (currently only "saturated_raw").
+    """
+    mask = df["pm25_raw"] > PM25_RAW_SATURATION_THRESHOLD
+    dropped = df[mask].assign(filter_reason="saturated_raw").copy()
+    kept = df[~mask].copy()
+    if not dropped.empty:
+        offenders = dropped[["sensor_id", "name", "pm25_raw"]].to_dict("records")
+        logger.warning(
+            "Quarantined %d PurpleAir sensor(s) with saturated pm25_raw (> %.0f µg/m³): %s",
+            len(dropped), PM25_RAW_SATURATION_THRESHOLD, offenders,
+        )
+    return kept, dropped
+
+
+def fetch_sensors() -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Fetch all outdoor PurpleAir sensors within the Dallas bounding box.
 
-    Returns a DataFrame with columns:
-        sensor_id, name, lat, lon, pm25, pm25_raw, epa_corrected, source
+    Returns a (kept, dropped) tuple of DataFrames:
+      kept    — sensors that passed the saturation filter. Columns:
+                sensor_id, name, lat, lon, pm25, pm25_raw, epa_corrected,
+                humidity, source.
+      dropped — sensors quarantined because pm25_raw exceeded
+                PM25_RAW_SATURATION_THRESHOLD. Same columns as `kept`
+                plus a `filter_reason` column (currently always
+                "saturated_raw").
 
     pm25 is the EPA-corrected 10-minute average PM2.5 (µg/m³).
     pm25_raw is the original uncorrected reading.
@@ -88,7 +130,9 @@ def fetch_sensors() -> pd.DataFrame:
 
     empty_cols = ["sensor_id", "name", "lat", "lon", "pm25", "pm25_raw", "epa_corrected", "humidity", "source"]
     if not rows:
-        return pd.DataFrame(columns=empty_cols)
+        empty_kept    = pd.DataFrame(columns=empty_cols)
+        empty_dropped = pd.DataFrame(columns=empty_cols + ["filter_reason"])
+        return empty_kept, empty_dropped
 
     df = pd.DataFrame(rows, columns=field_names)
 
@@ -121,7 +165,10 @@ def fetch_sensors() -> pd.DataFrame:
         df["humidity"] = float("nan")
     df["source"] = "purpleair"
 
-    return df
+    # NEW: quarantine after all column work, so kept and dropped have
+    # the same shape (plus filter_reason on dropped).
+    kept, dropped = _quarantine_saturated(df)
+    return kept, dropped
 
 
 def classify_pm25(pm25: float) -> str:
