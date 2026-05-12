@@ -21,21 +21,66 @@ import threading
 import time
 from contextlib import asynccontextmanager
 
+from apscheduler.schedulers.background import BackgroundScheduler
 from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.cells import router as cells_router
 from api.routes.geocode import router as geocode_router
-from api.routes.grid import get_cached_snapshot, router as grid_router
+from api.routes.grid import get_cached_snapshot, refresh_snapshot, router as grid_router
 from api.routes.health import router as health_router
 from api.routes.route import router as route_router
 from api.routes.sensors import router as sensors_router
 
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 cors_logger = logging.getLogger("aeria.cors")
 router_logger = logging.getLogger("aeria.router")
+
+# Single-worker assumption: this scheduler runs once per process.
+# If scaled to multiple workers (gunicorn --workers N, paid Render
+# with horizontal scale), switch to a DB-backed jobstore or
+# external lock to prevent N concurrent pipeline runs every cycle.
+SCHEDULER_INTERVAL_MINUTES = 25
+
+_scheduler: BackgroundScheduler | None = None
+
+
+def _start_scheduler() -> None:
+    global _scheduler
+    if _scheduler is not None:
+        return
+    try:
+        _scheduler = BackgroundScheduler(daemon=True)
+        _scheduler.add_job(
+            refresh_snapshot,
+            trigger="interval",
+            minutes=SCHEDULER_INTERVAL_MINUTES,
+            max_instances=1,
+            coalesce=True,
+            id="grid-refresh",
+        )
+        _scheduler.start()
+        logger.info(
+            "Background scheduler started — grid refresh every %d min",
+            SCHEDULER_INTERVAL_MINUTES,
+        )
+    except Exception as e:
+        logger.warning("Scheduler failed to start, continuing without it: %s", e)
+        _scheduler = None
+
+
+def _stop_scheduler() -> None:
+    global _scheduler
+    if _scheduler is None:
+        return
+    try:
+        _scheduler.shutdown(wait=False)
+    except Exception as e:
+        logger.warning("Scheduler shutdown error: %s", e)
+    _scheduler = None
 
 # Local Vite dev server origins — always permitted so a misconfigured deploy
 # env can never break local development.
@@ -107,11 +152,16 @@ def _maybe_preload_graph() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Startup: spawn both warmups as daemon threads and yield immediately so
-    # endpoints come up while the work runs in the background. No shutdown
-    # work needed — daemon threads die with the parent process.
+    # endpoints come up while the work runs in the background. The scheduler
+    # is stopped explicitly on shutdown; the daemon threads die with the
+    # parent process.
     _start_warmup()
+    _start_scheduler()
     _maybe_preload_graph()
-    yield
+    try:
+        yield
+    finally:
+        _stop_scheduler()
 
 
 app = FastAPI(

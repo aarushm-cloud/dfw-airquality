@@ -98,6 +98,16 @@ def get_cached_snapshot() -> PipelineSnapshot:
     return snap
 
 
+def refresh_snapshot() -> PipelineSnapshot:
+    """Force-refresh the cached snapshot. Called by the scheduler
+    on a fixed interval to keep the cache hot regardless of user
+    traffic. Bypasses the TTL check that get_cached_snapshot uses."""
+    snap = _run_full_pipeline()
+    _cache["ts"] = time.time()
+    _cache["value"] = snap
+    return snap
+
+
 @router.get("/grid", response_model=GridResponse, tags=["grid"])
 def get_grid() -> GridResponse:
     """Full IDW + traffic/wind-adjusted PM2.5 grid over the Dallas bounding box.
