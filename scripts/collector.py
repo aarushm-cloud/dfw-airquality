@@ -43,10 +43,10 @@ def _fetch_sensors() -> pd.DataFrame:
     frames = []
 
     try:
-        pa = fetch_sensors()
-        if not pa.empty:
-            frames.append(pa)
-            log.info("PurpleAir: %d sensors", len(pa))
+        pa_kept, _pa_dropped = fetch_sensors()
+        if not pa_kept.empty:
+            frames.append(pa_kept)
+            log.info("PurpleAir: %d sensors", len(pa_kept))
     except Exception as e:
         log.warning("PurpleAir fetch failed — skipping. (%s)", e)
 

@@ -14,10 +14,27 @@ class SensorReading(BaseModel):
     source: str
 
 
+class FilteredSensor(BaseModel):
+    sensor_id: str
+    name: str
+    lat: float
+    lon: float
+    pm25_raw: float
+    reason: str = Field(
+        description="Filter reason. Currently always 'saturated_raw'. "
+                    "Future values may include 'ab_disagreement' or 'stale'."
+    )
+
+
 class SensorsResponse(BaseModel):
     count: int
     timestamp: str
     sensors: list[SensorReading]
+    filtered_sensors: list[FilteredSensor] = Field(
+        default_factory=list,
+        description="PurpleAir sensors quarantined upstream before IDW. "
+                    "Surfaced for operator visibility; not fed to the grid.",
+    )
 
 
 class BBox(BaseModel):

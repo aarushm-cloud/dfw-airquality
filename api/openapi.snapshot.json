@@ -174,6 +174,45 @@
         "title": "CellResponse",
         "type": "object"
       },
+      "FilteredSensor": {
+        "properties": {
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pm25_raw": {
+            "title": "Pm25 Raw",
+            "type": "number"
+          },
+          "reason": {
+            "description": "Filter reason. Currently always 'saturated_raw'. Future values may include 'ab_disagreement' or 'stale'.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "sensor_id": {
+            "title": "Sensor Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sensor_id",
+          "name",
+          "lat",
+          "lon",
+          "pm25_raw",
+          "reason"
+        ],
+        "title": "FilteredSensor",
+        "type": "object"
+      },
       "GeoJSONLineString": {
         "properties": {
           "coordinates": {
@@ -463,6 +502,14 @@
             "title": "Count",
             "type": "integer"
           },
+          "filtered_sensors": {
+            "description": "PurpleAir sensors quarantined upstream before IDW. Surfaced for operator visibility; not fed to the grid.",
+            "items": {
+              "$ref": "#/components/schemas/FilteredSensor"
+            },
+            "title": "Filtered Sensors",
+            "type": "array"
+          },
           "sensors": {
             "items": {
               "$ref": "#/components/schemas/SensorReading"
@@ -715,7 +762,7 @@
     },
     "/api/grid": {
       "get": {
-        "description": "Full IDW + traffic/wind-adjusted PM2.5 grid over the Dallas bounding box.\n\nSlow on first call (~5-15s end-to-end including all upstream fetches);\ncached for 5 minutes after that.",
+        "description": "Full IDW + traffic/wind-adjusted PM2.5 grid over the Dallas bounding box.\n\nSlow on first call (~5-15s end-to-end including all upstream fetches);\ncached for 30 minutes after that.",
         "operationId": "get_grid_api_grid_get",
         "responses": {
           "200": {

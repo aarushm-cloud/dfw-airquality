@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from data.ingestion.openaq import fetch_openaq
 from data.ingestion.purpleair import fetch_sensors
 
-from api.schemas.responses import SensorReading, SensorsResponse
+from api.schemas.responses import FilteredSensor, SensorReading, SensorsResponse
 
 router = APIRouter()
 
@@ -15,20 +15,29 @@ _TTL_SECONDS = 300
 _cache: dict = {"ts": 0.0, "value": None}
 
 
-def _fetch_combined() -> pd.DataFrame:
-    purpleair_df = fetch_sensors()
+def _fetch_combined() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Returns (combined_kept, purpleair_dropped):
+      combined_kept     — purpleair kept rows + all openaq rows, ready
+                          for downstream consumers that want a single
+                          frame.
+      purpleair_dropped — quarantined purpleair rows; openaq has no
+                          equivalent failure mode so this is purpleair-only.
+    """
+    purpleair_kept, purpleair_dropped = fetch_sensors()
     openaq_df = fetch_openaq()
-    return pd.concat([purpleair_df, openaq_df], ignore_index=True)
+    combined = pd.concat([purpleair_kept, openaq_df], ignore_index=True)
+    return combined, purpleair_dropped
 
 
-def get_cached_sensors() -> pd.DataFrame:
+def get_cached_sensors() -> tuple[pd.DataFrame, pd.DataFrame]:
     now = time.time()
     if _cache["value"] is not None and now - _cache["ts"] < _TTL_SECONDS:
         return _cache["value"]
-    df = _fetch_combined()
+    pair = _fetch_combined()
     _cache["ts"] = now
-    _cache["value"] = df
-    return df
+    _cache["value"] = pair
+    return pair
 
 
 def _row_to_reading(row: pd.Series) -> SensorReading:
@@ -45,6 +54,17 @@ def _row_to_reading(row: pd.Series) -> SensorReading:
     )
 
 
+def _row_to_filtered(row: pd.Series) -> FilteredSensor:
+    return FilteredSensor(
+        sensor_id=str(row["sensor_id"]),
+        name=str(row["name"]),
+        lat=float(row["lat"]),
+        lon=float(row["lon"]),
+        pm25_raw=float(row["pm25_raw"]),
+        reason=str(row["filter_reason"]),
+    )
+
+
 @router.get("/sensors", response_model=SensorsResponse, tags=["sensors"])
 def get_sensors() -> SensorsResponse:
     """Live PM2.5 readings from PurpleAir + OpenAQ inside the Dallas bounding box.
@@ -53,15 +73,15 @@ def get_sensors() -> SensorsResponse:
     reference-grade and reported as-is. Cached for 5 minutes.
     """
     try:
-        df = get_cached_sensors()
+        combined, filtered = get_cached_sensors()
     except ValueError as e:
         raise HTTPException(status_code=503, detail=f"Configuration error: {e}")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Upstream sensor fetch failed: {e}")
 
-    sensors = [_row_to_reading(row) for _, row in df.iterrows()]
     return SensorsResponse(
-        count=len(sensors),
+        count=len(combined),
         timestamp=datetime.now(timezone.utc).isoformat(),
-        sensors=sensors,
+        sensors=[_row_to_reading(row) for _, row in combined.iterrows()],
+        filtered_sensors=[_row_to_filtered(row) for _, row in filtered.iterrows()],
     )

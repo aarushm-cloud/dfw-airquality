@@ -41,9 +41,9 @@ _cache: dict = {"ts": 0.0, "value": None}
 
 def _run_full_pipeline() -> PipelineSnapshot:
     """Run the full ingest → IDW → adjust pipeline. Mirrors app.py."""
-    purpleair_df = fetch_sensors()
+    purpleair_kept, _purpleair_dropped = fetch_sensors()
     openaq_df = fetch_openaq()
-    sensor_df = pd.concat([purpleair_df, openaq_df], ignore_index=True)
+    sensor_df = pd.concat([purpleair_kept, openaq_df], ignore_index=True)
 
     if sensor_df.empty:
         raise RuntimeError("No sensor data available for the Dallas bounding box.")
