@@ -1,4 +1,6 @@
+import { Fragment, memo, useState } from 'react';
 import { useGrid, useSelectedCell, useSelectedCellMeta, useMetroAggregates } from '../../../state/grid';
+import { useSensorsStore } from '../../../state/sensors';
 import { useViewStore } from '../../../state/view';
 import {
   AQI_COLOR,
@@ -40,6 +42,51 @@ function SectionHeader({ children }: { children: string }) {
     </div>
   );
 }
+
+function formatReason(raw: string): string {
+  if (raw === 'saturated_raw') return 'Saturated';
+  return raw;
+}
+
+// Diagnostic-only section: renders only when the backend has quarantined
+// at least one sensor upstream. React.memo + a primitive-reference selector
+// keeps cell/zip interactions from re-rendering this subtree.
+const FilteredSensorsSection = memo(function FilteredSensorsSection() {
+  const filtered = useSensorsStore((s) => s.filtered);
+  const [expanded, setExpanded] = useState(false);
+
+  if (filtered.length === 0) return null;
+
+  return (
+    <div className="mb-4">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="w-full text-left flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-stone-400 hover:text-stone-200 transition-colors"
+      >
+        <span>⚠ Filtered sensors · {filtered.length}</span>
+        <span aria-hidden>{expanded ? '−' : '+'}</span>
+      </button>
+      {expanded && (
+        <div className="mt-2 font-mono text-[10px] text-stone-300">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-1">
+            <div className="uppercase text-stone-500">Name</div>
+            <div className="uppercase text-stone-500 text-right">Raw µg/m³</div>
+            <div className="uppercase text-stone-500">Reason</div>
+            {filtered.map((s) => (
+              <Fragment key={s.sensor_id}>
+                <div className="truncate" title={s.name}>{s.name}</div>
+                <div className="text-right tabular-nums">{s.pm25_raw.toFixed(1)}</div>
+                <div className="text-stone-400">{formatReason(s.reason)}</div>
+              </Fragment>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
 
 export function LeftPanel() {
   const view = useViewStore((s) => s.view);
@@ -180,7 +227,10 @@ export function LeftPanel() {
         </div>
       )}
 
-      {/* Section 6 — Source / footer */}
+      {/* Section 6 — Filtered sensors (renders only when non-empty) */}
+      <FilteredSensorsSection />
+
+      {/* Section 7 — Source / footer */}
       <div className="border-t border-hairline pt-3 mt-4">
         <div className="font-mono text-[9px] tracking-wider text-stone-500">
           Source:{' '}

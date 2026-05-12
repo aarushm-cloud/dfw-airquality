@@ -128,7 +128,7 @@ DOM-side UI components live in `src/components/ui/`. R3F scene components live i
 
 ### Left panel ([`src/components/ui/LeftPanel.tsx`](src/components/ui/LeftPanel.tsx))
 - Width **280px** (constant `PANEL_WIDTH_PX` in the same file). Full-height, left-edge, fixed positioning
-- Six sections, top to bottom: header / status / who-should-take-care / activity guidance / cell breakdown / source-footer
+- Seven sections, top to bottom: header / status / who-should-take-care / activity guidance / cell breakdown / filtered-sensors / source-footer. The filtered-sensors section is diagnostic-only — renders only when `useSensorsStore.filtered.length > 0`. Collapsible (local `useState`, not store). Header echoes the low-confidence flag's monospace/uppercase/stone vocabulary. Shows name, raw PM₂.₅, and reason for each upstream-quarantined sensor. Wrapped in `React.memo` so cell interactions do not trigger a re-render
 - Health guidance content is sourced from EPA AirNow Activity Guide (Feb 2023) and lives in [`src/world/healthGuidance.ts`](src/world/healthGuidance.ts). Do not edit, paraphrase, or extend the strings — they're authored from a public health source and changes are not in scope
 - Source attribution link in the footer is mandatory for credibility
 - Cell breakdown section renders only when a cell is selected. Layout is a key/value `<dl>`, not tile grid — at 240px content width tiles are unworkably small

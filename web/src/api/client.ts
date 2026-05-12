@@ -83,9 +83,19 @@ export async function getCellAt(lat: number, lon: number): Promise<CellAt> {
   return res.json();
 }
 
-// /api/sensors shape (verified via curl 2026-05-04):
-// { count: number, timestamp: string, sensors: SensorRow[] }
+// /api/sensors shape (verified via curl 2026-05-12):
+// { count, timestamp, sensors: SensorRow[], filtered_sensors: FilteredSensor[] }
 // No wind fields exposed at metro or per-sensor level — see CONTRACT future-cleanup.
+// pm25_raw is nullable: OpenAQ reference monitors serialise it as null.
+export type FilteredSensor = {
+  sensor_id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  pm25_raw: number;   // non-null on filtered rows — only PurpleAir can be saturated
+  reason: string;     // currently always 'saturated_raw'
+};
+
 export type SensorsResponse = {
   count: number;
   timestamp: string;
@@ -95,10 +105,11 @@ export type SensorsResponse = {
     lat: number;
     lon: number;
     pm25: number;
-    pm25_raw: number;
+    pm25_raw: number | null;
     epa_corrected: number;
     source: string;
   }>;
+  filtered_sensors: FilteredSensor[];
 };
 
 export async function getSensors(): Promise<SensorsResponse> {
