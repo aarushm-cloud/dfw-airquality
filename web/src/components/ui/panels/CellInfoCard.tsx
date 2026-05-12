@@ -193,8 +193,8 @@ export function CellInfoCard() {
         <span className="font-display text-[30px] leading-none text-stone-100">
           {pm25.toFixed(1)}
         </span>
-        <span className="font-mono uppercase text-[10px] tracking-wider text-stone-500">
-          µg/m³
+        <span className="font-mono normal-case text-[10px] tracking-wider text-stone-500">
+          µG/M³
         </span>
       </div>
 

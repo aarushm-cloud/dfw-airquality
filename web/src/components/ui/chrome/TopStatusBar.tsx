@@ -87,7 +87,7 @@ export function TopStatusBar() {
         <span className="font-sans normal-case text-[12px] text-stone-200">
           {metro ? metro.pm25Mean.toFixed(1) : '—'}
         </span>
-        <span className="text-[9px] text-stone-500">µg/m³</span>
+        <span className="normal-case text-[9px] text-stone-500">µG/M³</span>
       </span>
 
       {/* Wind metric intentionally omitted — /api/sensors does not expose wind.

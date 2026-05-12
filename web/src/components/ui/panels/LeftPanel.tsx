@@ -117,8 +117,8 @@ export function LeftPanel() {
           <span className="font-display text-[32px] leading-none text-stone-100">
             {status === 'ready' ? pm25.toFixed(1) : '—'}
           </span>
-          <span className="font-mono uppercase text-[10px] tracking-wider text-stone-500">
-            µg/m³
+          <span className="font-mono normal-case text-[10px] tracking-wider text-stone-500">
+            µG/M³
           </span>
         </div>
 
@@ -162,7 +162,7 @@ export function LeftPanel() {
           <dl className="text-[10px] font-mono uppercase">
             <div className="flex justify-between py-1">
               <dt className="text-stone-500">PM₂.₅ Max</dt>
-              <dd className="text-stone-200">{cell.pm25Max.toFixed(1)} µg/m³</dd>
+              <dd className="text-stone-200">{cell.pm25Max.toFixed(1)} <span className="normal-case">µG/M³</span></dd>
             </div>
             <div className="flex justify-between py-1">
               <dt className="text-stone-500">Confidence</dt>
