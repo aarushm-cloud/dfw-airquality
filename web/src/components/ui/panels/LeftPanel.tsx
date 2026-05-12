@@ -61,7 +61,7 @@ export function LeftPanel() {
 
   let zipLabel: string;
   if (!hasCell) {
-    zipLabel = 'METRO AVERAGE';
+    zipLabel = 'METRO MEDIAN';
   } else if (metaStatus === 'loading') {
     zipLabel = `CELL ${cell.row}·${cell.col} · ZIP —`;
   } else if (resolvedZip) {

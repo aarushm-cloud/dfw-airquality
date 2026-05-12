@@ -75,7 +75,7 @@ export function TopStatusBar() {
 
       <Separator />
 
-      {/* Metro PM2.5 */}
+      {/* Metro PM2.5 — median across cells, robust to outlier sensors */}
       <span className="flex items-center gap-1.5">
         {metro && (
           <span
@@ -84,6 +84,7 @@ export function TopStatusBar() {
             style={{ backgroundColor: AQI_COLOR[metro.category] }}
           />
         )}
+        <span className="text-stone-400">MEDIAN</span>
         <span className="font-sans normal-case text-[12px] text-stone-200">
           {metro ? metro.pm25Mean.toFixed(1) : '—'}
         </span>

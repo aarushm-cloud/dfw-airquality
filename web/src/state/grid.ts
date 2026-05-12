@@ -44,6 +44,11 @@ export type SelectedCellMeta = {
   metaStatus: 'loading' | 'ready' | 'error';
 };
 
+// `pm25Mean` now holds the MEDIAN across cells, not the mean. Field name is
+// preserved to avoid a wide rename across consumers (TopStatusBar, LeftPanel,
+// MetroAggregates type, computation block). Switch to median was made because
+// two known-unreliable sensors in southern Dallas pull the mean to ~373 µg/m³
+// while the rest of the network reads in the single digits.
 export type MetroAggregates = {
   pm25Mean: number;
   pm25Max: number;
@@ -168,7 +173,9 @@ export const useGrid = create<GridState>((set, get) => ({
       );
 
       const n = cells.length;
-      const pm25Mean = cells.reduce((s, c) => s + c.pm25Mean, 0) / n;
+      const sorted = cells.map((c) => c.pm25Mean).sort((a, b) => a - b);
+      const mid = n >> 1;
+      const pm25Mean = n % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
       const pm25Max = cells.reduce((m, c) => Math.max(m, c.pm25Max), -Infinity);
       const confidenceMean = cells.reduce((s, c) => s + c.confidenceMin, 0) / n;
       const metro: MetroAggregates = {
