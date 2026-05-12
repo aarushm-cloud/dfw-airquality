@@ -1,6 +1,10 @@
 # DFW Air Quality
 
-DFW Air Quality fuses live PM₂.₅ readings from public sensor networks with real-time traffic congestion and wind direction to produce street-level air quality estimates across the Dallas–Fort Worth metro. The output drives an interactive 3D dashboard with cell-level drill-down, first-person scene visualization, and a cleanest-path routing tool for walking and biking.
+![AERIA — DFW PM₂.₅ Atlas](docs/aeria-screenshot.png)
+
+**Live:** [dfw-airquality.vercel.app](https://dfw-airquality.vercel.app)
+
+A real-time, street-level PM₂.₅ dashboard for the Dallas–Fort Worth metro. Fuses live IoT sensor data, traffic congestion, and wind direction into an interpolated, block-level air quality grid — surfaced through a 3D web dashboard (AERIA) with cell-level drill-down and a first-person street view.
 
 Public air quality tools surface point-sensor readings or county-level averages. Neither captures the spatial variation that matters at a pedestrian or cyclist scale, where proximity to a congested corridor or downwind position from an emitter can shift PM₂.₅ exposure by an order of magnitude over a few hundred meters. This project closes that gap with an interpolated, traffic- and wind-corrected grid resolved to the block level.
 
@@ -12,74 +16,30 @@ Public air quality tools surface point-sensor readings or county-level averages.
 - Applies EPA correction (AirNow Fire and Smoke Map formula) to raw PurpleAir readings using humidity
 - Interpolates a smooth 200×200 PM₂.₅ grid using IDW (Inverse Distance Weighting) with cosine-corrected distance calculations for Dallas latitude
 - Adjusts the interpolated grid using live TomTom traffic congestion (exponential curve weighting) and OpenWeatherMap wind direction (per-cell cosine similarity factor)
-- Renders a stylized 3D city dashboard with cell-level drill-down and a first-person street view, plus a Folium raster overlay map for cross-comparison
+- Renders a stylized 3D city dashboard with cell-level drill-down and a first-person street view, plus a Folium raster overlay map for local cross-comparison
 - Accumulates live snapshots for drift monitoring and downstream modeling
 
 ---
 
-## Architecture
+## AERIA — 3D web dashboard
 
-```
-dfw-airquality/
-├── app.py                  # Streamlit entry point
-├── .env                    # API keys (gitignored — never commit this)
-├── .gitignore
-├── requirements.txt
-├── config.py               # Constants: bounding box, grid, IDW, traffic/wind params
-├── data/
-│   ├── ingestion/                   # Live API fetchers
-│   │   ├── purpleair.py             # PurpleAir live ingestion (EPA-corrected)
-│   │   ├── openaq.py                # OpenAQ v3 ingestion (secondary PM2.5 source)
-│   │   ├── weather.py               # OpenWeatherMap ingestion (live wind)
-│   │   ├── traffic.py               # TomTom ingestion (5×5 sample grid, live)
-│   │   └── history.py               # Live dashboard snapshot accumulator
-│   ├── spatial/
-│   │   └── spatial_features.py      # OSMnx highway-distance feature builder
-│   ├── dashboard_snapshots.csv      # Accumulated live snapshots
-│   └── .cache/                      # OSMnx + other cached fetches
-├── engine/
-│   ├── adjustments.py      # Shared traffic/wind math (scalar + vectorised)
-│   ├── interpolation.py    # IDW interpolation + post-IDW grid adjustments
-│   ├── features.py         # Per-sensor live feature columns
-│   └── router.py           # Cleanest-route optimizer
-├── ml/
-│   ├── predictor.py                 # Random Forest inference
-│   ├── training/
-│   │   └── collect_training_data.py # Canonical training-data builder
-│   ├── analysis/
-│   │   ├── sensor_coverage_check.py
-│   │   ├── openaq_coverage_check.py
-│   │   └── output/                  # Generated PNGs / CSVs
-│   ├── models/                      # .pkl files (gitignored)
-│   ├── data/                        # ML-specific data artifacts
-│   │   ├── history.csv              # Training set (gitignored)
-│   │   ├── quality_report.json      # Quality report
-│   │   ├── collection_log.txt       # Audit log
-│   │   └── .checkpoints/            # Per-sensor parquet resume points
-│   └── docs/                        # Algorithm documentation
-├── scripts/
-│   └── collector.py        # Headless live snapshot collector (cron/background)
-├── viz/
-│   └── heatmap.py          # Folium map: raster overlay, sensor dots, popups, legend
-├── api/                              # FastAPI backend wrapping engine/, data/, config.py
-│   ├── main.py
-│   ├── routes/
-│   │   ├── health.py                 # /health — backend liveness
-│   │   ├── sensors.py                # /sensors — live PurpleAir + OpenAQ readings
-│   │   ├── grid.py                   # /grid — interpolated 200×200 PM₂.₅ grid
-│   │   └── cells.py                  # /cells/{id} — per-cell breakdown + attribution
-│   └── schemas/                      # Pydantic response models
-└── web/                              # Vite + React + TypeScript + R3F frontend (AERIA)
-    ├── src/
-    │   ├── App.tsx
-    │   ├── api/client.ts             # Typed fetch layer for FastAPI
-    │   ├── state/                    # Zustand stores (sensors, grid, scene, view, connection)
-    │   ├── world/                    # Pure helpers: AQI, bbox math, building generation, health guidance
-    │   └── components/
-    │       ├── scene/                # R3F: CityScene, StreetScene, CellGrid, Buildings, Particles
-    │       └── ui/                   # TopNav, TopStatusBar, LeftPanel, CellInfoCard, ZipSearch
-    └── docs/                         # Reference screenshots and design notes
-```
+The custom frontend ([`web/`](web/)) is the primary interface and what's deployed at [dfw-airquality.vercel.app](https://dfw-airquality.vercel.app). Built in React Three Fiber and backed by a FastAPI service ([`api/`](api/)) that wraps the Python engine as typed JSON endpoints. The Folium/Streamlit app (`app.py`, `viz/heatmap.py`) remains available for local cross-comparison.
+
+**Two primary views.** A top-down isometric *city overview* of the DFW bounding box with a clickable cell grid, generated buildings, and PM₂.₅-driven particle ambience — hovering surfaces a cell info card; clicking selects the cell and updates the side panel. A first-person *street view* drops the user into ground level for any selected cell; the geometry is reusable, only the air-quality state changes.
+
+**Persistent left panel.** AQI category, current PM₂.₅ reading with 24h delta and attribution line ("EPA-corrected · IDW from N nearby sensors"), AQI-driven health guidance for sensitive groups and the general public, activity guidance (outdoor exercise, windows, masks), and a per-cell breakdown (traffic adjustment, wind adjustment, highway distance, last updated).
+
+**Top status bar.** Live indicator with sensor count, network-median PM₂.₅ (robust to outlier sensors), wind speed and direction, and an "updated N min ago" timestamp.
+
+**ZIP search.** Jump the camera and selection straight to any DFW ZIP.
+
+---
+
+## Dallas coverage
+
+Bounding box: N 33.08 / S 32.55 / E -96.46 / W -97.05
+
+19 of 27 sensors pass A/B validation on a typical run. 7 of 16 macro grid cells are sparsely covered, clustered in southern and far-eastern DFW (CV=1.21) — these regions are flagged as low-confidence in the dashboard so residents and decision-makers know where the interpolation is well-grounded and where it isn't.
 
 ---
 
@@ -106,13 +66,15 @@ All free tier. No credit card required.
 
 **Adjustments.** Post-IDW, each grid cell gets traffic and wind corrections applied. Traffic uses an exponential curve above a congestion threshold. Wind uses per-cell cosine similarity between the wind vector and the bearing from each sensor — downwind cells get pollution added, upwind cells get it reduced. Sensor readings themselves are never modified; adjustments only apply to interpolated grid cells where IDW has no road or wind context.
 
+**Aggregation.** The headline network statistic shown in the top status bar is the *median* across the 30×30 display cells, not the mean. Median is robust to outlier readings from broken or anomalous sensors and is the defensible statistic for sparse sensor networks with known data quality limitations.
+
 **Rendering.** The interpolated and adjusted grid is exposed as JSON via the FastAPI service. The 3D frontend consumes it directly. The Folium view Gaussian-smooths the same grid into a PNG raster (ImageOverlay) with a sparse 30×30 transparent rectangle grid for click popups subsampled from the full 200×200 grid.
 
 ---
 
 ## Design decisions
 
-**Why IDW over kriging or pure ML.** A 180-day Random Forest pipeline (68,407 sensor-hours across 19 sensors) was evaluated against the deterministic IDW + adjustment baseline using two approaches: raw PM₂.₅ prediction and IDW-residual correction. Neither outperformed the deterministic baseline on RMSE (2.48 µg/m³ vs 2.91 for the residual model). The system ships with the deterministic path. Training infrastructure and spatial features (highway distance via OSMnx) are retained for future iterations. Full writeup in [`ml/docs/`](ml/docs/).
+**Why IDW over kriging or pure ML.** A 180-day Random Forest pipeline (68,407 sensor-hours across 19 sensors) was evaluated against the deterministic IDW + adjustment baseline using two approaches: raw PM₂.₅ prediction and IDW-residual correction. Neither outperformed the deterministic baseline on RMSE (2.48 µg/m³ vs 2.91 for the residual model). The system ships with the deterministic path. Training infrastructure and spatial features (highway distance via OSMnx) are retained for future iterations. Full writeup in [`ml/docs/`](ml/docs).
 
 **Why post-IDW adjustment instead of feature-engineered IDW.** Sensor readings already encode local traffic and wind effects at the sensor location. Applying traffic and wind corrections to sensor inputs would double-count those effects. Adjustments are applied only to interpolated grid cells — where IDW has no road or wind context — preserving sensor measurements as ground truth.
 
@@ -120,23 +82,17 @@ All free tier. No credit card required.
 
 **Why FastAPI between the engine and the frontend.** The original Python engine wasn't built for browser consumption. FastAPI wraps the existing pipeline as typed JSON endpoints (`/sensors`, `/grid`, `/cells/{id}`) without modifying the underlying logic, which means the same engine serves both the Streamlit app and the React frontend with no code duplication.
 
----
-
-## AERIA — 3D web dashboard
-
-The custom frontend (`web/`) is the primary interface. Built in React Three Fiber and backed by a FastAPI service (`api/`) that wraps the Python engine as typed JSON endpoints. The original Folium/Streamlit map (`app.py`, `viz/heatmap.py`) remains available for cross-comparison and for use cases where a flat raster view is preferred.
-
-**Two primary views.** A top-down isometric *city overview* of the DFW bounding box with a clickable cell grid, generated buildings, and PM₂.₅-driven particle ambience — hovering surfaces a cell info card; clicking selects the cell and updates the side panel. A first-person *street view* drops the user into ground level for any selected cell; the geometry is reusable, only the air-quality state changes.
-
-**Persistent left panel.** AQI category, current PM₂.₅ reading with 24h delta and attribution line ("EPA-corrected · IDW from N nearby sensors"), AQI-driven health guidance for sensitive groups and the general public, activity guidance (outdoor exercise, windows, masks), and a per-cell breakdown (traffic adjustment, wind adjustment, highway distance, last updated).
-
-**Top status bar.** Live indicator with sensor count, network-average PM₂.₅, wind speed and direction, and an "updated N min ago" timestamp.
-
-**ZIP search.** Jump the camera and selection straight to any DFW ZIP.
+**Why median over mean for the headline statistic.** With a sparse sensor network (27 sensors across the DFW metro) and known data quality issues (8 of 27 sensors typically fail A/B validation; a smaller number return anomalous values that survive validation but still skew aggregates), median is robust to outliers in a way mean is not. A pure mean is sensitive to a single broken sensor; median requires a much larger fraction of the network to be wrong before it shifts.
 
 ---
 
-## Setup
+## See it live
+
+[dfw-airquality.vercel.app](https://dfw-airquality.vercel.app) — Vercel-hosted frontend, Render-hosted FastAPI backend, with a background scheduler keeping the cache warm.
+
+---
+
+## Run locally
 
 ```bash
 git clone https://github.com/aarushm-cloud/dfw-airquality.git
@@ -144,7 +100,6 @@ cd dfw-airquality
 
 python -m venv venv
 source venv/bin/activate       # Windows: venv\Scripts\activate
-
 pip install -r requirements.txt
 ```
 
@@ -157,27 +112,21 @@ OPENWEATHERMAP_API_KEY=your_key_here
 TOMTOM_API_KEY=your_key_here
 ```
 
+Run the AERIA dev stack (FastAPI backend on `:8000` and Vite frontend on `:5173`):
+
 ```bash
-streamlit run app.py
+./dev.sh --with-frontend
 ```
 
----
+Output from each process is prefixed (`[api]`, `[web]`) so the multiplexed log stays scannable. Ctrl+C cleans up every child process.
 
-## Local development
-
-The project ships with a FastAPI backend (`api/`) and a React + R3F frontend
-(`web/`) alongside the Folium/Streamlit app. Use `dev.sh` to launch the dev
-stack:
+The Folium/Streamlit app remains available for local cross-comparison:
 
 ```bash
-./dev.sh                                    # FastAPI backend on :8000 (auto-reload)
-./dev.sh --with-streamlit                   # also start the Streamlit app on :8501
-./dev.sh --with-frontend                    # also start the Vite dev server on :5173
+./dev.sh --with-streamlit                   # backend + Streamlit only
 ./dev.sh --with-streamlit --with-frontend   # all three at once
+streamlit run app.py                        # standalone Streamlit
 ```
-
-Output from each process is prefixed (`[api]`, `[streamlit]`, `[web]`) so the
-multiplexed log stays scannable. Ctrl+C cleans up every child process.
 
 The frontend lives in [`web/`](web/) — see `web/README.md` for setup.
 
@@ -194,11 +143,72 @@ Writes to `data/dashboard_snapshots.csv`. Independent of the ML training set.
 
 ---
 
-## Dallas coverage
+## Architecture
 
-Bounding box: N 33.08 / S 32.55 / E -96.46 / W -97.05
-
-19 of 27 sensors pass A/B validation on a typical run. 7 of 16 macro grid cells are sparsely covered, clustered in southern and far-eastern DFW (CV=1.21) — these regions are flagged as low-confidence in the dashboard.
+```
+dfw-airquality/
+├── app.py                  # Streamlit entry point (local cross-comparison)
+├── .env                    # API keys (gitignored — never commit)
+├── .gitignore
+├── requirements.txt
+├── config.py               # Constants: bounding box, grid, IDW, traffic/wind params
+├── render.yaml             # Render deployment config (backend)
+├── runtime.txt             # Python runtime pin
+├── api/                              # FastAPI backend wrapping engine/, data/, config.py
+│   ├── main.py
+│   ├── routes/
+│   │   ├── health.py                 # /health — backend liveness
+│   │   ├── sensors.py                # /sensors — live PurpleAir + OpenAQ readings
+│   │   ├── grid.py                   # /grid — interpolated 200×200 PM₂.₅ grid
+│   │   └── cells.py                  # /cells/{id} — per-cell breakdown + attribution
+│   └── schemas/                      # Pydantic response models
+├── web/                              # Vite + React + TypeScript + R3F frontend (AERIA)
+│   ├── src/
+│   │   ├── App.tsx
+│   │   ├── api/client.ts             # Typed fetch layer for FastAPI
+│   │   ├── state/                    # Zustand stores (sensors, grid, scene, view, connection)
+│   │   ├── world/                    # Pure helpers: AQI, bbox math, building generation, health guidance
+│   │   └── components/
+│   │       ├── scene/                # R3F: CityScene, StreetScene, CellGrid, Buildings, Particles
+│   │       └── ui/                   # TopNav, TopStatusBar, LeftPanel, CellInfoCard, ZipSearch
+│   └── docs/                         # Reference screenshots and design notes
+├── engine/
+│   ├── adjustments.py      # Shared traffic/wind math (scalar + vectorised)
+│   ├── interpolation.py    # IDW interpolation + post-IDW grid adjustments
+│   ├── features.py         # Per-sensor live feature columns
+│   └── router.py           # Cleanest-route optimizer (scaffolded — UI integration pending)
+├── data/
+│   ├── ingestion/                   # Live API fetchers
+│   │   ├── purpleair.py             # PurpleAir live ingestion (EPA-corrected)
+│   │   ├── openaq.py                # OpenAQ v3 ingestion (secondary PM₂.₅ source)
+│   │   ├── weather.py               # OpenWeatherMap ingestion (live wind)
+│   │   ├── traffic.py               # TomTom ingestion (live congestion grid)
+│   │   └── history.py               # Live dashboard snapshot accumulator
+│   ├── spatial/
+│   │   └── spatial_features.py      # OSMnx highway-distance feature builder
+│   ├── dashboard_snapshots.csv      # Accumulated live snapshots
+│   └── .cache/                      # OSMnx + other cached fetches
+├── ml/
+│   ├── predictor.py                 # Random Forest inference (evaluated, not in live path)
+│   ├── training/
+│   │   └── collect_training_data.py # Canonical training-data builder
+│   ├── analysis/
+│   │   ├── sensor_coverage_check.py
+│   │   ├── openaq_coverage_check.py
+│   │   └── output/                  # Generated PNGs / CSVs
+│   ├── models/                      # .pkl files (gitignored)
+│   ├── data/                        # ML-specific data artifacts
+│   │   ├── history.csv              # Training set (gitignored)
+│   │   ├── quality_report.json
+│   │   ├── collection_log.txt
+│   │   └── .checkpoints/            # Per-sensor parquet resume points
+│   └── docs/                        # Algorithm + negative-result documentation
+├── scripts/
+│   └── collector.py        # Headless live snapshot collector
+├── viz/
+│   └── heatmap.py          # Folium map: raster overlay, sensor dots, popups, legend
+└── tests/                  # Backend and engine tests
+```
 
 ---
 
@@ -207,7 +217,6 @@ Bounding box: N 33.08 / S 32.55 / E -96.46 / W -97.05
 - **Cleanest-path route optimizer** — graph routing on the OSM street network, with edge weights combining distance and PM₂.₅ exposure. Backend (`engine/router.py`) is scaffolded; UI integration pending.
 - **Historical playback** — time-machine view over the accumulated `dashboard_snapshots.csv`, scrubbing through past PM₂.₅ states.
 - **Random Forest residual model in inference** — *evaluated, baseline outperformed, shelved.* The 180-day RF pipeline didn't beat deterministic IDW + adjustments on RMSE (see [`ml/docs/PHASE4_RESULT.md`](ml/docs/PHASE4_RESULT.md) for the full negative-result writeup). Training infrastructure and the OSMnx-backed spatial feature pipeline are retained, but the live dashboard runs on IDW.
-- **Production deployment** — Render (backend) and Vercel (frontend). Currently runs locally via `dev.sh`.
 
 ---
 
