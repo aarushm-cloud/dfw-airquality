@@ -1,7 +1,7 @@
 # DFW Air Quality Dashboard — Complete Algorithm Report
 
 **Author:** Aarush Madhireddy
-**Date:** April 16, 2026
+**Date:** May 12, 2026
 **Project:** DFW Real-Time Air Quality Dashboard (Phase 3)
 
 ---
@@ -27,7 +27,7 @@
 
 ## 1. Congestion Scoring (Traffic Data)
 
-**File:** `data/traffic.py`, lines 26–34
+**File:** `data/ingestion/traffic.py`, lines 26–34
 
 **Formula:**
 
@@ -47,7 +47,7 @@ Simple ratio inversion: `1 - (current / freeflow)`, clipped to `[0, 1]` via `np.
 
 ## 2. PM2.5 Data Cleaning & Classification
 
-**Files:** `data/purpleair.py` — `fetch_sensors()` (cleaning + EPA correction) and `classify_pm25()` (classification)
+**Files:** `data/ingestion/purpleair.py` — `fetch_sensors()` (cleaning + EPA correction) and `classify_pm25()` (classification)
 
 **Cleaning rules:** Drop NaN, drop negative values, keep zero, then apply the EPA correction.
 
@@ -88,7 +88,7 @@ This formula is documented in the EPA's AirNow Fire and Smoke Map technical docu
 
 ### For the Programmer
 
-**Cleaning pipeline** (all in `data/purpleair.py`):
+**Cleaning pipeline** (all in `data/ingestion/purpleair.py`):
 
 1. `dropna(subset=["pm25"])` removes null rows.
 2. Boolean filter `df["pm25"] >= 0` removes negatives.
@@ -96,23 +96,23 @@ This formula is documented in the EPA's AirNow Fire and Smoke Map technical docu
 
 **EPA correction implementation.** `apply_epa_correction()` copies `pm25` into `pm25_raw`, then for rows where `humidity` is not null computes `0.52 * pm25_raw - 0.085 * humidity + 5.71` and writes it back to the `pm25` column. Corrected values are clipped to `>= 0` to handle the small negatives the formula can produce at very low concentrations. Rows without humidity keep their raw value and are flagged with `epa_corrected = 0`. The PurpleAir API request in `fetch_sensors()` includes `humidity` in its `fields` list so the data is available to the correction step.
 
-**OpenAQ handling.** `data/openaq.py` returns data tagged with `source = "openaq"` and is never passed through `apply_epa_correction()`. For schema consistency with PurpleAir — so `pd.concat` in `app.py` produces a uniform frame — OpenAQ rows explicitly carry `pm25_raw = NaN` and `epa_corrected = 0`. The `source` column makes it possible to separate the two populations again for audit. NaN in `pm25_raw` is the canonical signal for "no laser-counter raw exists".
+**OpenAQ handling.** `data/ingestion/openaq.py` returns data tagged with `source = "openaq"` and is never passed through `apply_epa_correction()`. For schema consistency with PurpleAir — so `pd.concat` in `app.py` produces a uniform frame — OpenAQ rows explicitly carry `pm25_raw = NaN` and `epa_corrected = 0`. The `source` column makes it possible to separate the two populations again for audit. NaN in `pm25_raw` is the canonical signal for "no laser-counter raw exists".
 
 **Classification.** The `classify_pm25()` function is a simple if/elif cascade against EPA breakpoint constants. The 10-minute average field (`pm2.5_10minute`) is used rather than real-time to reduce noise.
 
 **Calibration note.** `TRAFFIC_WEIGHT` (8.0 µg/m³), `WIND_WEIGHT` (10.0 µg/m³), and the classification breakpoints were all chosen against *reference-grade* PM2.5 levels reported in the literature, not PurpleAir-raw readings. Applying the EPA correction at the source aligns the live pipeline with those parameters without any recalibration.
 
-**Training-pipeline parity.** The Phase 4 training-data builder (`data/collect_training_data.py`) applies the same EPA PM2.5 correction formula
+**Training-pipeline parity.** The Phase 4 training-data builder (`ml/training/collect_training_data.py`) applies the same EPA PM2.5 correction formula
 
 > `PM2.5_corrected = 0.52 * PM2.5_raw - 0.085 * RH + 5.71`
 
-with the same `pm25` / `pm25_raw` / `epa_corrected` column convention used live, plus an additional A/B-channel disagreement filter (per EPA guidance: drop any historical hour where PurpleAir's two laser counters differ by more than 30%). The A/B filter is only available in the training pipeline because the historical API exposes both channels; the live `pm2.5_10minute` field is already an internal A/B average. **The EPA correction is implemented in two files** — `data/purpleair.py` for the live pipeline and `data/collect_training_data.py` for the training pipeline — and the two implementations must be edited in lockstep. A follow-up refactor will extract the formula into a shared `data/corrections.py` module.
+with the same `pm25` / `pm25_raw` / `epa_corrected` column convention used live, plus an additional A/B-channel disagreement filter (per EPA guidance: drop any historical hour where PurpleAir's two laser counters differ by more than 30%). The A/B filter is only available in the training pipeline because the historical API exposes both channels; the live `pm2.5_10minute` field is already an internal A/B average. **The EPA correction is implemented in two files** — `data/ingestion/purpleair.py` for the live pipeline and `ml/training/collect_training_data.py` for the training pipeline — and the two implementations must be edited in lockstep. A follow-up refactor will extract the formula into a shared `data/corrections.py` module.
 
 ---
 
 ## 3. Geographic Distance Correction (Cosine Correction)
 
-**File:** `config.py`, lines 7–12
+**File:** `config.py`, lines 7–12 (`LON_CORRECTION` at line 12)
 
 **Formula:**
 
@@ -134,7 +134,7 @@ A planar approximation with latitude-dependent longitude scaling. At latitude ph
 
 ## 4. Inverse Distance Weighting (IDW) Interpolation
 
-**File:** `engine/interpolation.py`, lines 29–89
+**File:** `engine/interpolation.py`, `run_idw()` starting at line 43
 
 **Formula:**
 
@@ -164,7 +164,7 @@ For areas at the edges of the bounding box where no sensor is within range, the 
 
 ### For the Programmer
 
-Fully vectorized NumPy implementation. The core is a 3D broadcast: grid points as `(res, res, 1)` vs sensors as `(1, 1, N)`, producing a `(res, res, N)` distance tensor. Weights are `1/distance^3` with an `np.where` mask zeroing out sensors beyond `IDW_SEARCH_RADIUS_DEG = 0.15`. Division uses a guarded `np.where(has_neighbours, weight_total, 1.0)` denominator to avoid NaN, with sparse cells falling back to `np.mean(sensor_pm25)`. Zero-distance guard sets `distances == 0` to `1e-10`. Note: `app.py` passes `grid_resolution=60` (not the config default of 200), producing a 60x60 grid of 3,600 cells for performance on each refresh.
+Fully vectorized NumPy implementation. The core is a 3D broadcast: grid points as `(res, res, 1)` vs sensors as `(1, 1, N)`, producing a `(res, res, N)` distance tensor. Weights are `1/distance^3` with an `np.where` mask zeroing out sensors beyond `IDW_SEARCH_RADIUS_DEG = 0.15`. Division uses a guarded `np.where(has_neighbours, weight_total, 1.0)` denominator to avoid NaN, with sparse cells falling back to `np.mean(sensor_pm25)`. Zero-distance guard sets `distances == 0` to `1e-10`. Note: `app.py` line 128 passes `grid_resolution=60` (not the config default of 200), producing a 60x60 grid of 3,600 cells for performance on each refresh.
 
 ---
 
@@ -231,7 +231,7 @@ Converts cosine-corrected degree distance to meters via `* 111_000` (approximate
 
 ## 7. K-Nearest Traffic Blending
 
-**File:** `engine/interpolation.py`, lines 147–161
+**File:** `engine/interpolation.py`, lines 221–239
 
 **Formula:**
 
@@ -282,13 +282,13 @@ The 15 m/s cap is conservative. It corresponds to roughly a sustained 30+ mph wi
 
 ### For the Programmer
 
-`np.clip((wind_speed / WIND_SPEED_CAP) ** 0.5, 0.0, 1.0)`. Square-root scaling capped at 1.0. The `** 0.5` exponent produces a concave curve that front-loads dispersal at lower wind speeds compared to the previous linear version. This scalar is computed once per refresh cycle (wind is fetched as a single metro-wide reading from OWM) and broadcast across all grid cells. It modulates the maximum possible wind adjustment: `wind_adj = direction_factor * dispersal * WIND_WEIGHT`, where `WIND_WEIGHT = 10.0` ug/m3.
+`np.clip((wind_speed / WIND_SPEED_CAP) ** 0.5, 0.0, 1.0)`. Square-root scaling capped at 1.0. The `** 0.5` exponent produces a concave curve that front-loads dispersal at lower wind speeds compared to the previous linear version. This scalar is computed once per refresh cycle (wind is fetched as a single metro-wide reading from OWM) and broadcast across all grid cells. It modulates the maximum possible wind adjustment: `wind_adj = direction_factor * dispersal * WIND_WEIGHT`, where `WIND_WEIGHT = 3.0` ug/m3.
 
 ---
 
 ## 9. Wind Direction Factor
 
-**File:** `engine/adjustments.py`, lines 72–110
+**File:** `engine/adjustments.py`, lines 77–119
 
 **Formula:**
 
@@ -325,7 +325,7 @@ Here's how it works step by step:
 
 ## 10. Weighted Circular Mean Bearing
 
-**File:** `engine/interpolation.py`, lines 193–198
+**File:** `engine/interpolation.py`, lines 278–283
 
 **Formula:**
 
@@ -349,7 +349,7 @@ Standard circular/angular mean via Cartesian decomposition. Each bearing theta_k
 
 ## 11. Final Grid Adjustment Equation
 
-**File:** `engine/interpolation.py`, lines 210–215
+**File:** `engine/interpolation.py`, lines 295–299
 
 **Formula:**
 
@@ -361,7 +361,7 @@ adjusted_PM2.5 = max(0, adjusted_PM2.5)
 Where:
 
 - `traffic_adj = traffic_factor * decay * 8.0 ug/m3` (always >= 0)
-- `wind_adj = direction_factor * dispersal * 10.0 ug/m3` (can be negative)
+- `wind_adj = direction_factor * dispersal * 3.0 ug/m3` (can be negative)
 
 ### For the Environmental Scientist
 
@@ -369,7 +369,7 @@ This is where everything comes together. Each cell on the heatmap starts with it
 
 1. **Traffic addition** (0 to +8 ug/m3): If the cell is near a congested road, PM2.5 goes up. The maximum addition is 8 ug/m3, which matches field studies showing typical near-road PM2.5 enhancement of 5–10 ug/m3 even on the busiest highways. This is conservative — some studies report up to 15 ug/m3 near truck-heavy corridors.
 
-2. **Wind adjustment** (-10 to +10 ug/m3): This can go either way. If wind is blowing pollution toward the cell from a traffic source, PM2.5 goes up (by up to +10). If wind is blowing pollution away, PM2.5 goes down (by up to -10). The sign logic works because `wind_adj` is negative when wind transports pollution toward you, so subtracting it *adds* to PM2.5.
+2. **Wind adjustment** (-3 to +3 ug/m3): This can go either way. If wind is blowing pollution toward the cell from a traffic source, PM2.5 goes up (by up to +3). If wind is blowing pollution away, PM2.5 goes down (by up to -3). The sign logic works because `wind_adj` is negative when wind transports pollution toward you, so subtracting it *adds* to PM2.5. (The cap was lowered from an earlier 10 ug/m3 — wind adjustment is intentionally a smaller correction than the traffic term.)
 
 The final clamp to >= 0 prevents the model from producing physically impossible negative PM2.5 values, which could happen if wind dispersal subtracts more than the IDW estimate.
 
@@ -383,7 +383,7 @@ Element-wise addition and subtraction on flattened `(N,)` arrays, then `np.clip(
 
 ## 12. Gaussian Smoothing & Color Mapping
 
-**File:** `viz/heatmap.py`, lines 118–167
+**File:** `viz/heatmap.py`, lines 128–180 (`_add_idw_overlay`)
 
 **Smoothing:**
 
@@ -418,7 +418,7 @@ The color scale follows EPA conventions: green (good) through yellow (moderate) 
 
 ## 13. Popup Grid Subsampling
 
-**File:** `viz/heatmap.py`, lines 174–208
+**File:** `viz/heatmap.py`, lines 188–225
 
 **Formula:**
 
@@ -442,18 +442,19 @@ When you click on the heatmap, a popup shows the zip code, PM2.5 value, and AQI 
 | Parameter | Value | File | Rationale |
 |---|---|---|---|
 | `LON_CORRECTION` | cos(32.78) = 0.840 | config.py:12 | Corrects ~16% east-west overstatement at Dallas latitude |
-| `IDW_POWER` | 3 | config.py:63 | Steeper than default 2; nearby sensors dominate local estimates |
-| `IDW_SEARCH_RADIUS_DEG` | 0.15 deg (~17 km) | config.py:67 | Prevents distant sensors from smearing local variation |
-| `GRID_RESOLUTION` | 60 (runtime) | app.py:121 | 3,600 cells; balances detail vs. refresh speed |
-| `TRAFFIC_WEIGHT` | 8.0 ug/m3 | config.py:72 | Matches EPA near-road studies (5-10 ug/m3 typical) |
-| `TRAFFIC_DECAY_RADIUS_M` | 500 m | config.py:76 | Based on near-road gradient studies |
+| `GRID_RESOLUTION` (default) | 200 | config.py:63 | Config default; overridden at runtime |
+| `GRID_RESOLUTION` (runtime) | 60 | app.py:128 | 3,600 cells; balances detail vs. refresh speed |
+| `IDW_POWER` | 3 | config.py:68 | Steeper than default 2; nearby sensors dominate local estimates |
+| `IDW_SEARCH_RADIUS_DEG` | 0.15 deg (~17 km) | config.py:72 | Prevents distant sensors from smearing local variation |
+| `TRAFFIC_WEIGHT` | 8.0 ug/m3 | config.py:77 | Matches EPA near-road studies (5-10 ug/m3 typical) |
+| `TRAFFIC_DECAY_RADIUS_M` | 500 m | config.py:89 | Based on near-road gradient studies |
 | `TRAFFIC_THRESHOLD` | 0.3 | adjustments.py:21 | Below 30% congestion, traffic effect is negligible |
 | `TRAFFIC_CURVE_K` | 3.0 | adjustments.py:22 | Controls exponential steepness above threshold |
-| `WIND_WEIGHT` | 10.0 ug/m3 | adjustments.py:17 | Max dispersal/transport effect of strong aligned wind |
+| `WIND_WEIGHT` | 3.0 ug/m3 | adjustments.py:17 | Max dispersal/transport effect of strong aligned wind (intentionally small relative to TRAFFIC_WEIGHT) |
 | `WIND_SPEED_CAP` | 15.0 m/s | adjustments.py:18 | Beyond this, dispersal saturates |
-| `Gaussian sigma` | 1.5 cells | heatmap.py:139 | Gentle smoothing to avoid color banding artifacts |
-| `Heatmap opacity` | 0.35 (35%) | heatmap.py:145 | Basemap shows through |
-| `K (traffic neighbors)` | 5 | interpolation.py:149 | Smooth congestion blending without artifacts |
+| `Gaussian sigma` | 1.5 cells | heatmap.py:153 | Gentle smoothing to avoid color banding artifacts |
+| `Heatmap opacity` | 0.35 (35%) | heatmap.py:158 | Basemap shows through |
+| `K (traffic neighbors)` | 5 | interpolation.py:221 | Smooth congestion blending without artifacts |
 
 ---
 
